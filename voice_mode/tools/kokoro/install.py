@@ -18,7 +18,7 @@ from voice_mode.utils.version_helpers import (
 )
 from voice_mode.utils.migration_helpers import auto_migrate_if_needed
 from voice_mode.utils.services.kokoro_hardening import (
-    write_hardened_start_script, verify_pinned_commit,
+    write_hardened_start_script, verify_pinned_commit, verify_existing_install,
 )
 
 logger = logging.getLogger("voicemode")
@@ -230,8 +230,14 @@ async def kokoro_install(
             if os.path.exists(os.path.join(install_dir, "main.py")):
                 # Check if the requested version is already installed
                 if is_version_installed(Path(install_dir), version):
+                    # The version label is a tag name; prove the tree before trusting it
+                    verified, verify_msg = verify_existing_install(install_dir, version)
+                    if not verified:
+                        return {"success": False, "error": verify_msg}
+                    logger.info(verify_msg)
+
                     current_version = get_current_version(Path(install_dir))
-                    
+
                     # Determine which start script to use
                     system = platform.system()
                     if system == "Darwin":
@@ -241,14 +247,19 @@ async def kokoro_install(
                     
                     start_script_path = os.path.join(install_dir, start_script_name)
                     
-                    # Always use a loopback-bound copy of the start script
-                    if os.path.exists(start_script_path):
-                        try:
-                            start_script_path = write_hardened_start_script(
-                                install_dir, start_script_path, port
-                            )
-                        except ValueError as e:
-                            return {"success": False, "error": str(e)}
+                    # Always use a loopback-bound copy of the start script, never the stock one
+                    if not os.path.exists(start_script_path):
+                        return {
+                            "success": False,
+                            "error": f"Start script not found: {start_script_path}. "
+                                     "Run `voicemode service install kokoro --force`.",
+                        }
+                    try:
+                        start_script_path = write_hardened_start_script(
+                            install_dir, start_script_path, port
+                        )
+                    except ValueError as e:
+                        return {"success": False, "error": str(e)}
 
                     # Always update service files even if kokoro is already installed
                     logger.info("Kokoro is already installed, updating service files...")

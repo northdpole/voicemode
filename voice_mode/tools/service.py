@@ -19,7 +19,9 @@ from voice_mode.utils.services.common import find_process_by_port, check_service
 VOICEMODE_SERVE_PORT = 8765
 from voice_mode.utils.services.whisper_helpers import find_whisper_server, find_whisper_model
 from voice_mode.utils.services.kokoro_helpers import find_kokoro_fastapi, has_gpu_support, is_kokoro_starting_up
-from voice_mode.utils.services.kokoro_hardening import preferred_start_script
+from voice_mode.utils.services.kokoro_hardening import (
+    HARDENED_SCRIPT_MISSING, preferred_start_script,
+)
 
 logger = logging.getLogger("voicemode")
 
@@ -66,35 +68,14 @@ def get_service_config_vars(service_name: str) -> Dict[str, Any]:
         if not kokoro_dir:
             kokoro_dir = os.path.join(voicemode_dir, "services", "kokoro")
 
-        # Find start script
+        # Only the hardened (loopback) script; the stock upstream ones bind 0.0.0.0
         start_script = preferred_start_script(kokoro_dir)
-        if start_script is not None:
-            pass
-        elif platform.system() == "Darwin":
-            start_script = Path(kokoro_dir) / "start-gpu_mac.sh"
-        else:
-            # On Linux, prefer GPU script if GPU is available, otherwise use CPU script
-            if has_gpu_support():
-                possible_scripts = [
-                    Path(kokoro_dir) / "start-gpu.sh",
-                    Path(kokoro_dir) / "start-cpu.sh"
-                ]
-            else:
-                possible_scripts = [
-                    Path(kokoro_dir) / "start-cpu.sh",
-                    Path(kokoro_dir) / "start-gpu.sh"
-                ]
-
-            for script in possible_scripts:
-                if script.exists():
-                    start_script = script
-                    break
 
         from voice_mode.config import KOKORO_MAX_REQUESTS
 
         return {
             "HOME": home,
-            "START_SCRIPT": str(start_script) if start_script and start_script.exists() else "",
+            "START_SCRIPT": str(start_script) if start_script is not None else "",
             "KOKORO_DIR": kokoro_dir,
             "KOKORO_MAX_REQUESTS": str(KOKORO_MAX_REQUESTS),
         }
@@ -392,6 +373,11 @@ async def start_service(service_name: str) -> str:
     if find_process_by_port(port):
         return f"{service_name.capitalize()} is already running on port {port}"
 
+    # An older service file may still point at a stock upstream script (0.0.0.0
+    # bind), so refuse before launchd/systemd too, not only on the direct path.
+    if service_name == "kokoro" and not get_service_config_vars("kokoro")["START_SCRIPT"]:
+        return HARDENED_SCRIPT_MISSING
+
     system = platform.system()
 
     # Map service name to file name (voicemode -> serve, mlx_audio -> mlx-audio).
@@ -484,35 +470,10 @@ async def start_service(service_name: str) -> str:
         if not kokoro_dir:
             return "❌ kokoro-fastapi not found. Run `voicemode service install kokoro` first."
         
-        # Use appropriate start script
+        # Only the hardened (loopback) script; never fall back to a stock upstream one
         start_script = preferred_start_script(kokoro_dir)
-        if start_script is not None:
-            pass
-        elif platform.system() == "Darwin":
-            start_script = Path(kokoro_dir) / "start-gpu_mac.sh"
-        else:
-            # On Linux, prefer GPU script if GPU is available, otherwise use CPU script
-            if has_gpu_support():
-                # Try GPU scripts first
-                possible_scripts = [
-                    Path(kokoro_dir) / "start-gpu.sh",
-                    Path(kokoro_dir) / "start-cpu.sh"  # last resort
-                ]
-            else:
-                # No GPU, prefer CPU script
-                possible_scripts = [
-                    Path(kokoro_dir) / "start-cpu.sh",
-                    Path(kokoro_dir) / "start-gpu.sh"  # might work with CPU fallback
-                ]
-            
-            start_script = None
-            for script in possible_scripts:
-                if script.exists():
-                    start_script = script
-                    break
-        
-        if not start_script.exists():
-            return f"❌ Start script not found: {start_script}"
+        if start_script is None:
+            return HARDENED_SCRIPT_MISSING
 
         cmd = [str(start_script)]
 
@@ -689,7 +650,7 @@ async def enable_service(service_name: str) -> str:
         elif service_name == "kokoro":
             start_script = config_vars.get("START_SCRIPT", "")
             if not start_script or not Path(start_script).exists():
-                return "❌ Kokoro start script not found. Run `voicemode service install kokoro` first."
+                return HARDENED_SCRIPT_MISSING
 
         elif service_name == "mlx_audio":
             # Validate the uv-tool entry point exists rather than a start

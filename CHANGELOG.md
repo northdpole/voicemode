@@ -70,6 +70,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   be reached; now the error comes only when audio is actually used, and names the cause. On
   a machine with working audio nothing changes. This also turns the GitHub test matrix green
   again (VM-2597).
+- Re-running `voicemode service install kokoro` on an existing install now checks it the way
+  a fresh install is checked: the checkout must sit at the pinned commit with no local edits
+  to tracked files. Before, a moved tag or edited files passed on the version name alone. If
+  the check fails, reinstall with `voicemode service install kokoro --force`.
+- Kokoro only ever starts through the loopback-bound `start-voicemode.sh`. On older installs
+  without it, `voicemode service start` and `enable` used to fall back to the stock upstream
+  script, which listens on every network interface; they now refuse and ask you to re-run
+  `voicemode service install kokoro`, which recreates it.
 
 ### Security
 

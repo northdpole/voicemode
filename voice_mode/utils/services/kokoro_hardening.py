@@ -69,10 +69,58 @@ def write_hardened_start_script(install_dir: str, stock_script: str, port: int) 
     return target
 
 
+HARDENED_SCRIPT_MISSING = (
+    f"❌ Kokoro's hardened start script ({HARDENED_SCRIPT_NAME}) is missing. VoiceMode will "
+    "not run the stock upstream script, which listens on every network interface. Re-run "
+    "`voicemode service install kokoro` to recreate it from a verified install."
+)
+
+
 def preferred_start_script(kokoro_dir) -> Optional[Path]:
-    """The hardened script if the installer wrote one, else None."""
+    """The hardened script if the installer wrote one, else None.
+
+    There is deliberately no fallback to the stock upstream scripts: callers must
+    refuse to start Kokoro when this returns None (see HARDENED_SCRIPT_MISSING).
+    """
     candidate = Path(kokoro_dir) / HARDENED_SCRIPT_NAME
     return candidate if candidate.exists() else None
+
+
+def verify_checkout_clean(install_dir: str) -> Tuple[bool, str]:
+    """Check no tracked file in the Kokoro checkout differs from HEAD.
+
+    A pinned HEAD proves nothing if tracked files (the stock start script we
+    derive from, the app code) were edited on disk. Untracked files are ignored:
+    the installer itself adds ``.venv`` and ``start-voicemode.sh``. Files hidden
+    from ``git status`` with skip-worktree or assume-unchanged count as modified.
+    """
+    def _git(*args):
+        return subprocess.run(
+            ["git", *args], cwd=install_dir, capture_output=True, text=True, check=True,
+        ).stdout
+
+    try:
+        changed = [line[3:] for line in _git("status", "--porcelain", "--untracked-files=no").splitlines()]
+        # ls-files -v: lowercase tag = assume-unchanged, "S" = skip-worktree
+        changed += [line[2:] for line in _git("ls-files", "-v").splitlines()
+                    if line[:1].islower() or line[:1] == "S"]
+    except (subprocess.CalledProcessError, OSError) as e:
+        return False, f"could not check the Kokoro checkout for local changes: {e}"
+    if changed:
+        shown = ", ".join(sorted(set(changed))[:5])
+        return False, f"Kokoro checkout at {install_dir} has local changes to tracked files ({shown})"
+    return True, "no local changes to tracked files"
+
+
+def verify_existing_install(install_dir: str, version: str) -> Tuple[bool, str]:
+    """Clean tree and pinned HEAD, as required before trusting an existing checkout."""
+    for ok, msg in (verify_checkout_clean(install_dir), verify_pinned_commit(install_dir, version)):
+        if not ok:
+            return False, (
+                f"{msg}. Refusing to trust the existing install. Run "
+                "`voicemode service install kokoro --force` to reinstall from a clean, verified checkout."
+            )
+    return True, f"{version} verified clean at its pinned commit"
 
 
 def verify_pinned_commit(install_dir: str, version: str) -> Tuple[bool, str]:
