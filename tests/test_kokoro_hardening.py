@@ -26,6 +26,10 @@ def test_cors_restricted_to_loopback_origin():
     assert '"*"' not in out
 
 
+def test_does_not_inherit_callers_virtualenv():
+    assert "unset VIRTUAL_ENV" in kh.harden_start_script(STOCK, 8880)
+
+
 def test_fails_closed_without_host_flag():
     with pytest.raises(ValueError):
         kh.harden_start_script("#!/bin/bash\nuvicorn api.src.main:app --port 8880\n", 8880)

@@ -47,6 +47,8 @@ def harden_start_script(content: str, port: int) -> str:
     preamble = (
         "# --- VoiceMode hardening: loopback bind, no wildcard CORS ---\n"
         f"export CORS_ORIGINS='{origins}'\n"
+        "# Never install into whatever virtualenv the caller's shell has active.\n"
+        "unset VIRTUAL_ENV\n"
         "# ------------------------------------------------------------\n"
     )
     lines = hardened.splitlines(keepends=True)
