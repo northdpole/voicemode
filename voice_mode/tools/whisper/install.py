@@ -179,6 +179,10 @@ exec "$SERVER_BIN" \\
             logger.info("Loaded plist template from package resources")
         
         # Replace placeholders with expanded paths
+        # The template uses {START_SCRIPT} and {HOME}; the older tokens are kept
+        # so custom templates written against them still work.
+        plist_content = plist_content.replace("{START_SCRIPT}", start_script_path)
+        plist_content = plist_content.replace("{HOME}", os.path.expanduser("~"))
         plist_content = plist_content.replace("{START_SCRIPT_PATH}", start_script_path)
         plist_content = plist_content.replace("{LOG_DIR}", os.path.join(voicemode_dir, 'logs'))
         plist_content = plist_content.replace("{INSTALL_DIR}", install_dir)
