@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+- **Voice barge-in** — speak over Claude's reply to cut it and take the turn. Set `VOICEMODE_VOICE_BARGE_IN=true`; `VOICEMODE_VOICE_BARGE_IN_MS` (default 300) sets how much speech counts. Off by default: without echo cancellation, speakers trigger it, so use headphones. The first ~300 ms of the interruption is not in the recording that follows.
+
+### Added
 - `voicemode adapter install REPO [--path SUBDIR] [--ref REF]` installs a third-party STT/TTS adapter from a git repo into its own venv, pins the commit, and wires it in ahead of the local engine (`adapter list|on|off|setup|status|remove`). It shows the repo, commit, command and, for adapters that send audio off the machine, a red warning, before running anything. Adapters describe themselves in a `voicemode-adapter.json` manifest.
 
 
