@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `voicemode adapter install REPO [--path SUBDIR] [--ref REF]` installs a third-party STT/TTS adapter from a git repo into its own venv, pins the commit, and wires it in ahead of the local engine (`adapter list|on|off|setup|status|remove`). It shows the repo, commit, command and, for adapters that send audio off the machine, a red warning, before running anything. Adapters describe themselves in a `voicemode-adapter.json` manifest.
+
+
+### Added
 
 - STT request timeout is configurable: VOICEMODE_STT_TIMEOUT, and
   VOICEMODE_STT_TIMEOUT_LOCAL for local endpoints only (default 60s, unchanged). Thanks
