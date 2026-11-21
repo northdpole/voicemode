@@ -70,6 +70,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   be reached; now the error comes only when audio is actually used, and names the cause. On
   a machine with working audio nothing changes. This also turns the GitHub test matrix green
   again (VM-2597).
+- `voicemode serve` no longer exposes its MCP tools (voice capture, service management) to
+  your local network without a credential. Before, `--host 0.0.0.0` admitted every
+  private-network IP while the token was empty. Now any non-loopback `--host` refuses to
+  start unless `--token` (or `VOICEMODE_SERVE_TOKEN`) is at least 32 characters; generate
+  one with `openssl rand -hex 32`. IP allowlists and `--secret` still apply on top, but no
+  longer stand in for the token. Loopback binds (the default) are unchanged.
 
 ### Security
 

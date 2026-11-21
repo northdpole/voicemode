@@ -233,7 +233,7 @@ the per-call override.
 | `VOICEMODE_SERVE_ALLOW_TAILSCALE` | Allow Tailscale IP range (100.64.0.0/10) | `false` | `true` |
 | `VOICEMODE_SERVE_ALLOWED_IPS` | Custom CIDR allowlist (comma-separated) | None | `192.168.1.0/24,10.0.0.0/8` |
 | `VOICEMODE_SERVE_SECRET` | URL path secret segment | None | `my-secret-uuid` |
-| `VOICEMODE_SERVE_TOKEN` | Bearer token for authentication | None | `my-secret-token` |
+| `VOICEMODE_SERVE_TOKEN` | Bearer token for authentication; required (32+ chars) for any non-loopback bind | None | output of `openssl rand -hex 32` |
 
 ## Legacy Variables
 
