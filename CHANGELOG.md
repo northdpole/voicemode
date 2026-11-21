@@ -89,6 +89,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   To reach it from another machine, set `VOICEMODE_BROWSER_HOST` and a
   `VOICEMODE_BROWSER_TOKEN` of 16 or more characters; without the token it refuses to start.
   Open `/?token=<token>` once in the browser, or send `Authorization: Bearer <token>`.
+- `voicemode serve` no longer exposes its MCP tools (voice capture, service management) to
+  your local network without a credential. Before, `--host 0.0.0.0` admitted every
+  private-network IP while the token was empty. Now any non-loopback `--host` refuses to
+  start unless `--token` (or `VOICEMODE_SERVE_TOKEN`) is at least 32 characters; generate
+  one with `openssl rand -hex 32`. IP allowlists and `--secret` still apply on top, but no
+  longer stand in for the token. Loopback binds (the default) are unchanged.
 
 ### Security
 

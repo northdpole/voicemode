@@ -36,21 +36,30 @@ Then configure your client to connect (see client-specific sections below).
 
 To allow connections from other devices on your network:
 
-```bash
-# Bind to all interfaces
-voicemode serve --host 0.0.0.0
+Any bind other than loopback requires a bearer token of at least 32 characters. Without
+one, `voicemode serve` refuses to start. The IP allowlist narrows who may connect; it is
+not a credential.
 
-# Or allow specific IP ranges
-voicemode serve --host 0.0.0.0 --allow-ip 192.168.1.0/24
+```bash
+# Generate a token once and keep it
+export VOICEMODE_SERVE_TOKEN="$(openssl rand -hex 32)"
+
+# Bind to all interfaces (token required)
+voicemode serve --host 0.0.0.0 --token "$VOICEMODE_SERVE_TOKEN"
+
+# Also restrict to specific IP ranges
+voicemode serve --host 0.0.0.0 --allow-ip 192.168.1.0/24 --token "$VOICEMODE_SERVE_TOKEN"
 ```
+
+Clients send `Authorization: Bearer <token>`.
 
 ### Remote Access (Tailscale)
 
 For connections over Tailscale:
 
 ```bash
-# Allow Tailscale IP range
-voicemode serve --host 0.0.0.0 --allow-tailscale
+# Allow Tailscale IP range (token still required)
+voicemode serve --host 0.0.0.0 --allow-tailscale --token "$VOICEMODE_SERVE_TOKEN"
 ```
 
 ## Client Configuration
@@ -324,7 +333,7 @@ openssl rand -hex 32
 1. **Default binding**: Server binds to `127.0.0.1` by default (localhost only)
 2. **Explicit allowlists**: Use `--allow-ip` for specific ranges
 3. **Tailscale**: Use `--allow-tailscale` for Tailscale-only access
-4. **No public binding**: Avoid `--host 0.0.0.0` without IP restrictions
+4. **Token required off loopback**: `--host 0.0.0.0` (or any non-loopback address) refuses to start without a `--token` of 32+ characters; add IP restrictions on top
 
 ### Token Management
 
