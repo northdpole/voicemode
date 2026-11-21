@@ -276,9 +276,8 @@ def write_env_file(file_path: Path, config: Dict[str, str], preserve_comments: b
 # transcripts go, what listens on the network, or what gets executed, so a
 # prompt-injected agent could use them to exfiltrate audio or widen exposure.
 # The user can still set them with `voicemode config set` or by editing the file.
-_PROTECTED_KEY_PATTERN = re.compile(
-    r"(BASE_URLS?|_URLS?$|_HOST$|_TOKEN$|_SECRET$|_API_KEY$|_PASSWORD$|LOCAL_ONLY|^VOICEMODE_SERVE_|^VOICEMODE_MCP_|_COMMAND$|_CMD$)"
-)
+# Shared with the project-config filter in config.py (voice_mode.egress).
+from voice_mode.egress import TRUSTED_ONLY_KEY_PATTERN as _PROTECTED_KEY_PATTERN
 
 
 def check_agent_may_set(key: str) -> Optional[str]:

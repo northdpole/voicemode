@@ -19,8 +19,8 @@ def transcribe():
 @click.option(
     '--backend',
     type=click.Choice(['openai', 'whisperx', 'whisper-cpp']),
-    default='openai',
-    help='Transcription backend to use'
+    default='whisper-cpp',
+    help='Transcription backend (default: local whisper-cpp; openai uploads the file to OpenAI)'
 )
 @click.option(
     '--format',
@@ -108,8 +108,8 @@ def audio_command(
 @click.option(
     '--backend',
     type=click.Choice(['openai', 'whisperx', 'whisper-cpp']),
-    default='openai',
-    help='Transcription backend'
+    default='whisper-cpp',
+    help='Transcription backend (default: local whisper-cpp)'
 )
 @click.option(
     '--format',

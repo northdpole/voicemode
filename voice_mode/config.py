@@ -67,9 +67,39 @@ def find_voicemode_env_files() -> list[Path]:
     return config_files
 
 
+def _user_config_paths() -> set:
+    """The user-owned config files (current and legacy name). Everything else is a project config."""
+    base = Path.home() / ".voicemode"
+    return {(base / "voicemode.env").resolve(), (base / ".voicemode.env").resolve()}
+
+
+def project_config_may_set(key: str) -> bool:
+    """Whether a project (repo) config may set ``key``.
+
+    A project's .voicemode.env arrives with whatever repo you cloned, so it is
+    untrusted: it may set ordinary VOICEMODE_* preferences, but not endpoints,
+    hosts, tokens, API keys, LOCAL_ONLY/cloud opt-ins, MCP transport, commands,
+    or any non-VOICEMODE variable (PATH, OPENAI_API_KEY, OPENAI_BASE_URL...).
+    Those come only from the process environment or ~/.voicemode/voicemode.env.
+    """
+    from .egress import TRUSTED_ONLY_KEY_PATTERN
+    return key.startswith("VOICEMODE_") and not TRUSTED_ONLY_KEY_PATTERN.search(key)
+
+
+# Values read from the user's own ~/.voicemode/voicemode.env on the last load,
+# whether or not the process environment overrode them. The MCP launcher uses
+# this to bind a saved token to the URL saved with it.
+_USER_CONFIG_VALUES: Dict[str, str] = {}
+
+
+def user_config_values() -> Dict[str, str]:
+    return dict(_USER_CONFIG_VALUES)
+
+
 def load_voicemode_env():
     """Load configuration from voicemode.env files, with cascading from global to project-specific."""
     config_files = find_voicemode_env_files()
+    _USER_CONFIG_VALUES.clear()
     
     # If no config files found, create default global config
     if not config_files:
@@ -144,8 +174,25 @@ def load_voicemode_env():
 # Comma-separated list of TTS endpoints
 # VOICEMODE_TTS_BASE_URLS=http://127.0.0.1:8880/v1,https://api.openai.com/v1
 
-# Comma-separated list of STT endpoints
-# VOICEMODE_STT_BASE_URLS=http://127.0.0.1:2022/v1,https://api.openai.com/v1
+# Comma-separated list of STT endpoints. The default is local whisper only:
+# recordings never go to a cloud service unless you opt in.
+# VOICEMODE_STT_BASE_URLS=http://127.0.0.1:2022/v1
+
+# Add OpenAI to the default STT failover chain (true/false, default: false).
+# Without this, a local STT failure is an error, not a silent upload to OpenAI.
+# VOICEMODE_ALLOW_CLOUD_STT=false
+
+# Hosts, besides OpenAI's, that may receive OPENAI_API_KEY (comma-separated
+# hostnames). Every other endpoint gets a placeholder key.
+# VOICEMODE_API_KEY_HOSTS=
+
+# Never send speech or text off this machine (true/false, default: false).
+# Checked right before every TTS/STT request, including clone voices and
+# `voicemode transcribe`.
+# VOICEMODE_LOCAL_ONLY=false
+
+# Endpoints, hosts, API keys, tokens and the settings above are only read from
+# the environment or this file, never from a project's .voicemode.env.
 
 # STT model id sent to each endpoint. Leave unset for the per-provider default:
 # OpenAI -> whisper-1, mlx-audio -> mlx-community/whisper-large-v3-turbo-asr-4bit
@@ -495,7 +542,9 @@ TTS \\bAPI\\b A P I # API as individual letters
         config_files = [default_path]
     
     # Load configuration from all files in order (global first, project-specific last)
+    user_paths = _user_config_paths()
     for config_path in config_files:
+        trusted = config_path.resolve() in user_paths
         if config_path.exists():
             with open(config_path, 'r') as f:
                 lines = f.readlines()
@@ -535,6 +584,16 @@ TTS \\bAPI\\b A P I # API as individual letters
                                         value_parts.append(next_line)
                                     i += 1
                                 value = '\n'.join(value_parts)
+
+                        if key and trusted:
+                            _USER_CONFIG_VALUES[key] = value
+                        elif key and not project_config_may_set(key):
+                            logging.getLogger("voicemode").warning(
+                                "Ignoring %s from project config %s: endpoints, hosts, "
+                                "credentials and transport settings are only read from the "
+                                "environment or ~/.voicemode/voicemode.env", key, config_path)
+                            i += 1
+                            continue
 
                         # Only set if not already in environment (env vars take precedence)
                         if key and key not in os.environ:
@@ -786,15 +845,8 @@ def parse_provider_models(prefix: str) -> dict:
 
 def _is_loopback_url(url: str) -> bool:
     """True when ``url`` points at this machine (localhost, 127.0.0.0/8, ::1)."""
-    from urllib.parse import urlparse
-    import ipaddress
-    host = (urlparse(url).hostname or "").lower()
-    if host == "localhost" or host.endswith(".localhost"):
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
+    from .egress import is_loopback_url
+    return is_loopback_url(url)
 
 
 def apply_local_only(urls: list) -> list:
@@ -812,9 +864,42 @@ def apply_local_only(urls: list) -> list:
             "VOICEMODE_LOCAL_ONLY: ignoring non-local endpoints: %s", ", ".join(dropped))
     return kept
 
+LOCAL_STT_BASE_URL = "http://127.0.0.1:2022/v1"
+OPENAI_BASE_URL_DEFAULT = "https://api.openai.com/v1"
+
+
+def default_stt_base_urls() -> str:
+    """Local whisper only, unless the user opted in with VOICEMODE_ALLOW_CLOUD_STT."""
+    if env_bool("VOICEMODE_ALLOW_CLOUD_STT", False):
+        return f"{LOCAL_STT_BASE_URL},{OPENAI_BASE_URL_DEFAULT}"
+    return LOCAL_STT_BASE_URL
+
+
+def apply_cloud_stt_opt_in(urls: list) -> list:
+    """Drop OpenAI from the STT chain unless VOICEMODE_ALLOW_CLOUD_STT is on.
+
+    Applies to explicit lists too: older installers wrote OpenAI into
+    VOICEMODE_STT_BASE_URLS as a fallback the user never chose.
+    """
+    if env_bool("VOICEMODE_ALLOW_CLOUD_STT", False):
+        return urls
+    from .url_match import is_openai_url
+    dropped = [u for u in urls if is_openai_url(u)]
+    if dropped:
+        logging.getLogger("voicemode").warning(
+            "STT: not sending recordings to %s; set VOICEMODE_ALLOW_CLOUD_STT=true "
+            "to allow cloud transcription", ", ".join(dropped))
+    return [u for u in urls if not is_openai_url(u)]
+
+
+def stt_base_urls() -> list:
+    return apply_local_only(apply_cloud_stt_opt_in(
+        parse_comma_list("VOICEMODE_STT_BASE_URLS", default_stt_base_urls())))
+
+
 # New provider endpoint lists configuration
 TTS_BASE_URLS = apply_local_only(parse_comma_list("VOICEMODE_TTS_BASE_URLS", "http://127.0.0.1:8880/v1,https://api.openai.com/v1"))
-STT_BASE_URLS = apply_local_only(parse_comma_list("VOICEMODE_STT_BASE_URLS", "http://127.0.0.1:2022/v1,https://api.openai.com/v1"))
+STT_BASE_URLS = stt_base_urls()
 TTS_VOICES = parse_comma_list("VOICEMODE_VOICES", "af_sky,alloy")
 
 # Silently remap a local voice to an OpenAI voice when TTS falls back to OpenAI
@@ -930,7 +1015,7 @@ def reload_configuration():
     global STT_RETRY_ATTEMPTS, STT_RETRY_BACKOFF, STT_RETRY_BACKOFF_MAX
     global STT_TIMEOUT, STT_TIMEOUT_LOCAL
     TTS_BASE_URLS = apply_local_only(parse_comma_list("VOICEMODE_TTS_BASE_URLS", "http://127.0.0.1:8880/v1,https://api.openai.com/v1"))
-    STT_BASE_URLS = apply_local_only(parse_comma_list("VOICEMODE_STT_BASE_URLS", "http://127.0.0.1:2022/v1,https://api.openai.com/v1"))
+    STT_BASE_URLS = stt_base_urls()
     TTS_VOICES = parse_comma_list("VOICEMODE_VOICES", "af_sky,alloy")
     TTS_MODELS = parse_comma_list("VOICEMODE_TTS_MODELS", "tts-1,tts-1-hd,gpt-4o-mini-tts")
     TTS_MODELS_BY_PROVIDER = parse_provider_models("VOICEMODE_TTS_MODELS")

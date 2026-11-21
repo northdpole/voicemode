@@ -22,6 +22,7 @@ from typing import AsyncIterator, List, Optional, Tuple
 import httpx
 
 from . import config
+from .egress import guard_speech_destination
 
 logger = logging.getLogger("voicemode")
 
@@ -40,8 +41,10 @@ def _resolve_request(
 ) -> Tuple[str, str, str, List[str]]:
     """Return ``(api_key, voice_id, primary_model, models_to_try)``.
 
-    Raises :class:`CartesiaError` if the API key or voice id is missing.
+    Raises :class:`CartesiaError` if the API key or voice id is missing, and
+    RemoteSpeechBlocked under VOICEMODE_LOCAL_ONLY (Cartesia is always remote).
     """
+    guard_speech_destination(CARTESIA_BYTES_URL, "text for speech synthesis")
     api_key = config.CARTESIA_API_KEY
     if not api_key:
         raise CartesiaError("CARTESIA_API_KEY is not set")

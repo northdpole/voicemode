@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from voice_mode.config import BASE_DIR, CLONE_MODEL
+from voice_mode.egress import RemoteSpeechBlocked, guard_speech_destination
 
 logger = logging.getLogger("voicemode")
 
@@ -157,6 +158,11 @@ def _transcribe_audio(audio_path: Path) -> str:
 
     for base in base_urls:
         url = _normalise_transcription_url(base)
+        try:
+            guard_speech_destination(url, "a recording")
+        except RemoteSpeechBlocked as e:
+            failures.append((url, str(e)))
+            continue
         req = urllib.request.Request(url, data=body, headers=headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
