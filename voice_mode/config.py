@@ -758,6 +758,13 @@ AUTO_FOCUS_PANE = env_bool("VOICEMODE_AUTO_FOCUS_PANE", False)
 # opt-in until you want it. Turn on with VOICEMODE_CONTROL_CHANNEL_ENABLED=true.
 CONTROL_CHANNEL_ENABLED = env_bool("VOICEMODE_CONTROL_CHANNEL_ENABLED", False)
 
+# Voice barge-in: speak while Claude is talking to cut the reply and take the
+# turn. OFF by default -- without echo cancellation a speaker's own output
+# triggers it, so enable with headphones: VOICEMODE_VOICE_BARGE_IN=true.
+VOICE_BARGE_IN = env_bool("VOICEMODE_VOICE_BARGE_IN", False)
+# Sustained speech (ms) needed to count as an interruption.
+VOICE_BARGE_IN_MS = int(os.getenv("VOICEMODE_VOICE_BARGE_IN_MS", "300"))
+
 # Path to the control-channel Unix domain socket. Local-only (no TCP port — the
 # triggers all run on the same machine); bound only while an audio operation is
 # active so only the currently-speaking server owns it. Lives alongside the

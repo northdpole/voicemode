@@ -213,7 +213,14 @@ def get_openai_clients(api_key: str, stt_base_url: Optional[str] = None, tts_bas
     }
 
 
-async def text_to_speech(
+async def text_to_speech(*args, **kwargs):
+    """Play TTS; with VOICEMODE_VOICE_BARGE_IN, speaking over it cuts the reply."""
+    from .barge_in import voice_barge_in
+    with voice_barge_in():
+        return await _text_to_speech_impl(*args, **kwargs)
+
+
+async def _text_to_speech_impl(
     text: str,
     openai_clients: dict,
     tts_model: str,
