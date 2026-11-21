@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "name": "poly-stt",
+  "kind": "stt",
+  "description": "PolyAI Dialog-RSN-1 speech-to-text, falling back to local Whisper",
+  "port": 2023,
+  "health": "/health",
+  "command": ["python", "-I", "poly_stt_adapter.py"],
+  "requirements": ["dialog-dictate @ git+https://github.com/polyai/dialog-dictate@v0.4.1"],
+  "setup": ["dictate", "setup"],
+  "setup_check": ["python", "-c", "import dictate; dictate.resolve()"],
+  "leaves_machine": true,
+  "notice": "Your microphone audio is sent to PolyAI's API (region chosen in setup). If PolyAI is unreachable, it falls back to local Whisper on this machine."
+}

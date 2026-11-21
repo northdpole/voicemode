@@ -9,6 +9,7 @@ on the cora/clone-voices branch handles loading and lookup.
 
 import json
 import logging
+import re
 import subprocess
 import urllib.error
 import urllib.request
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from voice_mode.config import BASE_DIR, CLONE_MODEL
+from voice_mode.egress import RemoteSpeechBlocked, guard_speech_destination
 
 logger = logging.getLogger("voicemode")
 
@@ -38,6 +40,44 @@ DEFAULT_CLONE_MODEL = CLONE_MODEL
 # Legacy single-URL STT endpoint. Kept for backwards reference only --
 # _transcribe_audio() now walks voice_mode.config.STT_BASE_URLS instead.
 WHISPER_STT_URL = "http://localhost:2022/v1/audio/transcriptions"
+
+
+# A voice name becomes a single directory under VOICES_DIR, so it must be one
+# safe path segment: no separators, no "..", no leading dot or dash.
+VOICE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def _voices_root() -> Path:
+    return VOICES_DIR.expanduser().resolve()
+
+
+def _is_within_voices_dir(path: Path) -> bool:
+    """True if ``path`` (symlinks resolved) is strictly inside VOICES_DIR."""
+    root = _voices_root()
+    resolved = path.expanduser().resolve()
+    return resolved != root and resolved.is_relative_to(root)
+
+
+def _voice_dir_for(name: str) -> Path:
+    """Return the per-voice directory for ``name``, or raise ValueError.
+
+    ``name`` must already be normalised (stripped, lower-cased). Rejects
+    anything that is not a single safe slug, then resolves the destination
+    (following any existing symlink) and requires it to be a direct child of
+    VOICES_DIR, so neither ``../x`` nor a planted symlink can escape.
+    """
+    if not VOICE_NAME_RE.fullmatch(name):
+        raise ValueError(
+            f"Invalid voice name {name!r}: use 1-64 characters from a-z, 0-9, "
+            "'-' and '_', starting with a letter or digit."
+        )
+    root = _voices_root()
+    candidate = (root / name).resolve()
+    if candidate.parent != root:
+        raise ValueError(
+            f"Invalid voice name {name!r}: resolves outside {VOICES_DIR}."
+        )
+    return candidate
 
 
 def _load_voices_json() -> Dict[str, Any]:
@@ -157,6 +197,11 @@ def _transcribe_audio(audio_path: Path) -> str:
 
     for base in base_urls:
         url = _normalise_transcription_url(base)
+        try:
+            guard_speech_destination(url, "a recording")
+        except RemoteSpeechBlocked as e:
+            failures.append((url, str(e)))
+            continue
         req = urllib.request.Request(url, data=body, headers=headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
@@ -323,6 +368,11 @@ async def clone_add(
     if not name or not name.strip():
         return {"success": False, "error": "Voice name cannot be empty."}
     name = name.strip().lower()
+    # Reject unsafe names before touching the filesystem at all.
+    try:
+        _voice_dir_for(name)
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
 
     # Validate audio file
     source_path = Path(audio_file).expanduser().resolve()
@@ -349,7 +399,10 @@ async def clone_add(
 
     # Per-voice directory: <voices_root>/<name>/{default.wav, voice.md}
     VOICES_DIR.mkdir(parents=True, exist_ok=True)
-    voice_dir = VOICES_DIR / name
+    try:
+        voice_dir = _voice_dir_for(name)
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
     if voice_dir.exists() and any(voice_dir.iterdir()):
         return {
             "success": False,
@@ -518,8 +571,19 @@ async def clone_remove(
     # Optionally remove the audio file
     audio_removed = False
     if remove_audio:
-        ref_audio_path = Path(profile.get("ref_audio", ""))
-        if ref_audio_path.exists() and ref_audio_path.is_file():
+        ref_audio = profile.get("ref_audio", "")
+        ref_audio_path = Path(ref_audio).expanduser() if ref_audio else None
+        if ref_audio_path is not None and not ref_audio_path.is_absolute():
+            # voices.json stores new-layout paths relative to VOICES_DIR.
+            ref_audio_path = VOICES_DIR / ref_audio_path
+        if ref_audio_path is not None and not _is_within_voices_dir(ref_audio_path):
+            logger.warning(
+                f"Not removing {ref_audio_path}: outside {VOICES_DIR}"
+            )
+            removed_items.append(
+                f"Audio file NOT removed (outside {VOICES_DIR}): {ref_audio_path}"
+            )
+        elif ref_audio_path is not None and ref_audio_path.is_file():
             try:
                 ref_audio_path.unlink()
                 removed_items.append(f"Audio file: {ref_audio_path}")

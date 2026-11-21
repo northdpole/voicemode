@@ -2,6 +2,7 @@
 CLI entry points for voice-mode package.
 """
 import asyncio
+import ipaddress
 import sys
 import os
 import warnings
@@ -1217,8 +1218,8 @@ def config_get(key):
 @click.argument('value')
 def config_set(key, value):
     """Set a configuration value."""
-    from voice_mode.tools.configuration_management import update_config
-    result = asyncio.run(getattr(update_config, 'fn', update_config)(key, value))
+    from voice_mode.tools.configuration_management import apply_config_update
+    result = asyncio.run(apply_config_update(key, value))
     click.echo(result)
 
 
@@ -1565,6 +1566,10 @@ voice_mode_main_cli.add_command(status_cmd.status)
 
 # Add Claude Code integration commands
 voice_mode_main_cli.add_command(claude_cmd.claude)
+
+# Add adapter install/manage commands
+from voice_mode.cli_commands import adapter as adapter_cmd
+voice_mode_main_cli.add_command(adapter_cmd.adapter)
 
 # Add soundfonts toggle commands
 voice_mode_main_cli.add_command(soundfonts_cmd.soundfonts)
@@ -2014,9 +2019,30 @@ def converse(message_args, message, wait, skip_stt, duration, min_duration, voic
 
 
 # Serve command - HTTP/SSE server for remote access
+
+# Minimum bearer-token length for a non-loopback `serve` bind
+# (`openssl rand -hex 16` produces exactly this many characters).
+SERVE_MIN_TOKEN_LENGTH = 32
+
+
+def _is_loopback_host(host: str) -> bool:
+    """True only for binds reachable from this machine alone.
+
+    Unresolved hostnames other than ``localhost`` count as non-loopback: we
+    cannot tell where they point, so they must carry a token.
+    """
+    if host.strip().lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host.strip().strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
 @voice_mode_main_cli.command()
 @click.help_option('-h', '--help')
-@click.option('--host', default='127.0.0.1', help='Host to bind to (use 0.0.0.0 for all interfaces)')
+@click.option('--host', default='127.0.0.1',
+              help='Host to bind to (use 0.0.0.0 for all interfaces; any non-loopback host requires --token)')
 @click.option('--port', '-p', default=8765, type=int, help='Port to bind to')
 @click.option('--transport', '-t', default=SERVE_TRANSPORT,
               type=click.Choice(['streamable-http', 'sse']),
@@ -2060,14 +2086,15 @@ def serve(host: str, port: int, transport: str, log_level: str, allow_anthropic:
         # Start server on localhost (default)
         voicemode serve
 
-        # Allow connections from VMs (bind to all interfaces)
-        voicemode serve --host 0.0.0.0
+        # Allow connections from VMs (bind to all interfaces). Any
+        # non-loopback --host requires a --token of 32+ characters.
+        voicemode serve --host 0.0.0.0 --token "$(openssl rand -hex 32)"
 
         # Custom port
         voicemode serve --port 9000
 
         # Enable Anthropic IP ranges (for Claude Cowork)
-        voicemode serve --host 0.0.0.0 --allow-anthropic
+        voicemode serve --host 0.0.0.0 --allow-anthropic --token "$VOICEMODE_SERVE_TOKEN"
 
         # Allow all devices on your Tailscale network
         voicemode serve --allow-tailscale
@@ -2131,6 +2158,16 @@ def serve(host: str, port: int, transport: str, log_level: str, allow_anthropic:
         secret = SERVE_SECRET
     if token is None and SERVE_TOKEN:
         token = SERVE_TOKEN
+
+    # Beyond loopback, a bearer token is mandatory. The IP allowlist (which
+    # admits every private range by default) and the URL secret are extra
+    # restrictions, never a substitute for a credential.
+    if not _is_loopback_host(host) and len((token or "").strip()) < SERVE_MIN_TOKEN_LENGTH:
+        raise click.UsageError(
+            f"Refusing to bind to {host}: a non-loopback bind requires --token "
+            f"(or VOICEMODE_SERVE_TOKEN) of at least {SERVE_MIN_TOKEN_LENGTH} characters. "
+            "Generate one with: openssl rand -hex 32"
+        )
 
     # Build allowed CIDR list
     allowed_cidrs: list[str] = []

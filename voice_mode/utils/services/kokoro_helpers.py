@@ -78,7 +78,7 @@ def is_kokoro_starting_up() -> Optional[str]:
                     return "loading models (please wait)"
 
                 # Check for start script running
-                if 'start-gpu_mac.sh' in cmdline_str or 'start-cpu.sh' in cmdline_str or 'start-gpu.sh' in cmdline_str:
+                if 'start-voicemode.sh' in cmdline_str or 'start-gpu_mac.sh' in cmdline_str or 'start-cpu.sh' in cmdline_str or 'start-gpu.sh' in cmdline_str:
                     if 'kokoro' in cmdline_str:
                         return "starting up"
 

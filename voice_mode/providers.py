@@ -16,6 +16,7 @@ from .config import (
     OPENAI_API_KEY, get_voice_preferences,
 )
 from .provider_discovery import provider_registry, EndpointInfo, is_local_provider
+from .egress import guard_speech_destination, scoped_api_key
 
 logger = logging.getLogger("voicemode")
 
@@ -62,8 +63,9 @@ async def get_tts_client_and_voice(
 
         # Disable retries for local endpoints - they either work or don't
         max_retries = 0 if is_local_provider(base_url) else 2
+        guard_speech_destination(base_url)
         client = AsyncOpenAI(
-            api_key=OPENAI_API_KEY or "dummy-key-for-local",
+            api_key=scoped_api_key(base_url, OPENAI_API_KEY),
             base_url=base_url,
             max_retries=max_retries
         )
@@ -98,7 +100,8 @@ async def get_tts_client_and_voice(
                 selected_voice = voice
                 selected_model = _select_model_for_endpoint(endpoint_info, model)
 
-                api_key = OPENAI_API_KEY if endpoint_info.provider_type == "openai" else (OPENAI_API_KEY or "dummy-key-for-local")
+                guard_speech_destination(url)
+                api_key = scoped_api_key(url, OPENAI_API_KEY)
                 # Disable retries for local endpoints - they either work or don't
                 max_retries = 0 if is_local_provider(url) else 2
                 client = AsyncOpenAI(api_key=api_key, base_url=url, max_retries=max_retries)
@@ -125,7 +128,8 @@ async def get_tts_client_and_voice(
                 selected_voice = preferred_voice
                 selected_model = _select_model_for_endpoint(endpoint_info, model)
 
-                api_key = OPENAI_API_KEY if endpoint_info.provider_type == "openai" else (OPENAI_API_KEY or "dummy-key-for-local")
+                guard_speech_destination(url)
+                api_key = scoped_api_key(url, OPENAI_API_KEY)
                 # Disable retries for local endpoints - they either work or don't
                 max_retries = 0 if is_local_provider(url) else 2
                 client = AsyncOpenAI(api_key=api_key, base_url=url, max_retries=max_retries)
@@ -147,7 +151,8 @@ async def get_tts_client_and_voice(
             selected_voice = endpoint_info.voices[0]
             selected_model = _select_model_for_endpoint(endpoint_info, model)
 
-            api_key = OPENAI_API_KEY if endpoint_info.provider_type == "openai" else (OPENAI_API_KEY or "dummy-key-for-local")
+            guard_speech_destination(url)
+            api_key = scoped_api_key(url, OPENAI_API_KEY)
             # Disable retries for local endpoints - they either work or don't
             max_retries = 0 if is_local_provider(url) else 2
             client = AsyncOpenAI(api_key=api_key, base_url=url, max_retries=max_retries)
@@ -192,8 +197,9 @@ async def get_stt_client(
 
         # Disable retries for local endpoints - they either work or don't
         max_retries = 0 if is_local_provider(base_url) else 2
+        guard_speech_destination(base_url)
         client = AsyncOpenAI(
-            api_key=OPENAI_API_KEY or "dummy-key-for-local",
+            api_key=scoped_api_key(base_url, OPENAI_API_KEY),
             base_url=base_url,
             max_retries=max_retries
         )
@@ -208,7 +214,8 @@ async def get_stt_client(
     endpoint_info = endpoints[0]
     selected_model = _select_stt_model_for_endpoint(endpoint_info, model)
     
-    api_key = OPENAI_API_KEY if endpoint_info.provider_type == "openai" else (OPENAI_API_KEY or "dummy-key-for-local")
+    guard_speech_destination(endpoint_info.base_url)
+    api_key = scoped_api_key(endpoint_info.base_url, OPENAI_API_KEY)
     # Disable retries for local endpoints - they either work or don't
     max_retries = 0 if is_local_provider(endpoint_info.base_url) else 2
     client = AsyncOpenAI(

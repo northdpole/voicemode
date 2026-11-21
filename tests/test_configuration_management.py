@@ -55,7 +55,7 @@ class TestConfigurationManagement:
             
             # Patch the config path
             with patch("voice_mode.tools.configuration_management.USER_CONFIG_PATH", Path(temp_path)):
-                result = await getattr(update_config, 'fn', update_config)("TEST_KEY", "test_value")
+                result = await getattr(update_config, 'fn', update_config)("VOICEMODE_TTS_SPEED", "1.2")
                 
                 # Should return a message (success or error)
                 assert isinstance(result, str)
@@ -63,7 +63,7 @@ class TestConfigurationManagement:
                 
                 # If successful, should mention the key and value
                 if "success" in result.lower() or "updated" in result.lower():
-                    assert "TEST_KEY" in result
+                    assert "VOICEMODE_TTS_SPEED" in result
         finally:
             os.unlink(temp_path)
 
@@ -79,19 +79,19 @@ class TestConfigurationManagement:
         try:
             with os.fdopen(fd, 'w') as f:
                 f.write("# Test config\n")
-                f.write("KEEP_KEY=keep_me\n")
+                f.write("VOICEMODE_VOICES=keep_me\n")
 
             with patch("voice_mode.tools.configuration_management.USER_CONFIG_PATH", Path(temp_path)):
                 # Same value -> no-op: the file write must be skipped.
                 with patch("voice_mode.tools.configuration_management.write_env_file") as mock_write:
-                    result = await getattr(update_config, 'fn', update_config)("KEEP_KEY", "keep_me")
+                    result = await getattr(update_config, 'fn', update_config)("VOICEMODE_VOICES", "keep_me")
                     mock_write.assert_not_called()
 
                 assert "no change" in result.lower()
                 assert "updated successfully" not in result.lower()
 
                 # A genuine change still updates exactly as before.
-                result2 = await getattr(update_config, 'fn', update_config)("KEEP_KEY", "new_value")
+                result2 = await getattr(update_config, 'fn', update_config)("VOICEMODE_VOICES", "new_value")
                 assert "updated successfully" in result2.lower()
                 assert "new_value" in result2
         finally:
@@ -108,7 +108,7 @@ class TestConfigurationManagement:
         with patch("voice_mode.tools.configuration_management.USER_CONFIG_PATH", Path("/nonexistent/test.env")):
             with patch("pathlib.Path.mkdir"), patch("pathlib.Path.exists", return_value=False):
                 with patch("builtins.open", mock_open()) as mock_file:
-                    result = await getattr(update_config, 'fn', update_config)("TEST_KEY", "test_value")
+                    result = await getattr(update_config, 'fn', update_config)("VOICEMODE_TTS_SPEED", "1.2")
                     # Should return a string result
                     assert isinstance(result, str)
 
@@ -135,7 +135,7 @@ class TestConfigurationManagement:
         with patch("voice_mode.tools.configuration_management.USER_CONFIG_PATH", Path("/tmp/test_config.env")):
             with patch("pathlib.Path.mkdir"):
                 try:
-                    update_result = await getattr(update_config, 'fn', update_config)("TEST_INTEGRATION", "test")
+                    update_result = await getattr(update_config, 'fn', update_config)("VOICEMODE_TTS_SPEED", "1.0")
                     assert isinstance(update_result, str)
                     assert len(update_result) > 0
                 except Exception:
@@ -513,13 +513,13 @@ class TestMultilineValueHandling:
                 f.write('VOICEMODE_PRONOUNCE="\n')
                 f.write('TTS \\bJSON\\b jason\n')
                 f.write('"\n')
-                f.write('VOICEMODE_WHISPER_MODEL=base\n')
+                f.write('VOICEMODE_TTS_SPEED=1.0\n')
 
             temp_file = Path(temp_path)
 
-            # Update only VOICEMODE_WHISPER_MODEL
+            # Update only VOICEMODE_TTS_SPEED
             with patch("voice_mode.tools.configuration_management.USER_CONFIG_PATH", temp_file):
-                result = asyncio.run(getattr(update_config, 'fn', update_config)("VOICEMODE_WHISPER_MODEL", "large-v1"))
+                result = asyncio.run(getattr(update_config, 'fn', update_config)("VOICEMODE_TTS_SPEED", "1.5"))
 
             # Should succeed
             assert "success" in result.lower() or "updated" in result.lower()
@@ -533,12 +533,12 @@ class TestMultilineValueHandling:
             assert "TTS \\bJSON\\b jason" in content
 
             # Verify updated value
-            assert "VOICEMODE_WHISPER_MODEL=large-v1" in content
+            assert "VOICEMODE_TTS_SPEED=1.5" in content
 
             # Verify it can still be parsed correctly
             config = parse_env_file(temp_file)
             assert "TTS \\bJSON\\b jason" in config.get("VOICEMODE_PRONOUNCE", "")
-            assert config.get("VOICEMODE_WHISPER_MODEL") == "large-v1"
+            assert config.get("VOICEMODE_TTS_SPEED") == "1.5"
 
         finally:
             os.unlink(temp_path)
@@ -686,3 +686,98 @@ class TestStartScriptEnvLoader:
         # Surrounding quotes are stripped, contents never expanded.
         assert "PROMPT=claude CLAUDE.md Cora" in result.stdout
         assert "SECRET=s3cr3t_AB.+/=" in result.stdout
+
+
+# --- MCP update_config guard: allowlist, not denylist -----------------------
+#
+# An agent (possibly prompt-injected) must not be able to move where audio and
+# logs go, turn cloud fallback back on, or relax the pinned Kokoro install.
+# The guard is an allowlist; these tests enumerate every VOICEMODE_* key that
+# voice_mode/config.py reads so a new key is refused until someone decides.
+
+_CONFIG_PY = Path(__file__).resolve().parent.parent / "voice_mode" / "config.py"
+
+
+def _config_py_keys():
+    """Every VOICEMODE_* name in config.py. A trailing '_' marks a prefix family
+    (e.g. VOICEMODE_PRONOUNCE_<NAME>); expand it to a concrete key."""
+    names = set(re.findall(r"VOICEMODE_[A-Z0-9_]*", _CONFIG_PY.read_text()))
+    return sorted(n + "EXAMPLE" if n.endswith("_") else n for n in names)
+
+
+# Keys the finding named, plus ones that are not read in config.py but are
+# just as sensitive (read by the Kokoro installer).
+_MUST_REFUSE = [
+    "VOICEMODE_KOKORO_ALLOW_UNPINNED",
+    "VOICEMODE_TTS_VOICE_SUBSTITUTION",
+    "VOICEMODE_BASE_DIR",
+    "VOICEMODE_EVENT_LOG_DIR",
+    "VOICEMODE_KOKORO_HOST",
+    "VOICEMODE_LOCAL_ONLY",
+    "VOICEMODE_PREFER_LOCAL",
+    "VOICEMODE_ALWAYS_TRY_LOCAL",
+    "VOICEMODE_SAVE_ALL",
+    "VOICEMODE_SAVE_AUDIO",
+    "VOICEMODE_SAVE_TRANSCRIPTIONS",
+    "VOICEMODE_DEBUG",  # implies SAVE_AUDIO + SAVE_TRANSCRIPTIONS
+    "VOICEMODE_TOOLS_ENABLED",
+    "VOICEMODE_TOOLS_DISABLED",
+    "VOICEMODE_CREDENTIAL_STORE",
+    "VOICEMODE_CONTROL_SOCKET",
+    "VOICEMODE_PRONOUNCE",
+    "VOICEMODE_STT_PROMPT",
+]
+
+# Name fragments that mark a setting as user-controlled only: paths, network,
+# credentials, retention, provider routing, tool surface, install overrides.
+_SENSITIVE_FRAGMENTS = (
+    "DIR", "PATH", "URL", "HOST", "PORT", "SOCKET", "TOKEN", "SECRET", "KEY",
+    "CREDENTIAL", "SERVE_", "MCP_", "LOCAL", "SAVE_", "EVENT_LOG", "DEBUG",
+    "ALLOW", "SUBSTITUTION", "TOOLS_", "MODEL", "CARTESIA", "PRONOUNCE",
+)
+
+
+@pytest.mark.parametrize("key", sorted(set(_MUST_REFUSE)))
+def test_update_config_guard_refuses_named_sensitive_keys(key):
+    from voice_mode.tools.configuration_management import check_agent_may_set
+    refusal = check_agent_may_set(key)
+    assert refusal, f"{key} must be refused to an MCP agent"
+    assert key in refusal
+    assert "voicemode config set" in refusal
+
+
+def test_update_config_guard_refuses_every_sensitive_config_key():
+    """Every key in config.py whose name marks it as sensitive is refused."""
+    from voice_mode.tools.configuration_management import check_agent_may_set
+    keys = _config_py_keys()
+    assert len(keys) > 50, "config.py key scan found too few keys"
+    sensitive = [k for k in keys if any(f in k for f in _SENSITIVE_FRAGMENTS)]
+    allowed = [k for k in sensitive if not check_agent_may_set(k)]
+    assert allowed == [], f"sensitive keys an agent can change: {allowed}"
+
+
+def test_update_config_guard_refuses_unknown_keys():
+    """Allowlist: a key nobody has reviewed is refused, not waved through."""
+    from voice_mode.tools.configuration_management import check_agent_may_set
+    assert check_agent_may_set("VOICEMODE_SOMETHING_NEW")
+
+
+def test_update_config_allowlist_is_benign_and_current():
+    """Each allowlisted key exists in config.py and has no sensitive fragment."""
+    from voice_mode.tools.configuration_management import AGENT_SETTABLE_KEYS
+    keys = set(_config_py_keys())
+    assert AGENT_SETTABLE_KEYS <= keys, sorted(AGENT_SETTABLE_KEYS - keys)
+    risky = [k for k in AGENT_SETTABLE_KEYS if any(f in k for f in _SENSITIVE_FRAGMENTS)]
+    assert risky == [], risky
+
+
+@pytest.mark.asyncio
+async def test_update_config_tool_does_not_write_refused_key(tmp_path):
+    from voice_mode.tools.configuration_management import update_config
+    env = tmp_path / "voicemode.env"
+    env.write_text("VOICEMODE_BASE_DIR=/home/user/.voicemode\n")
+    with patch("voice_mode.tools.configuration_management.USER_CONFIG_PATH", env):
+        result = await getattr(update_config, "fn", update_config)(
+            "VOICEMODE_BASE_DIR", "/tmp/attacker")
+    assert "Refusing" in result and "VOICEMODE_BASE_DIR" in result
+    assert "/tmp/attacker" not in env.read_text()

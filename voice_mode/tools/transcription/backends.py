@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional, List
 import httpx
 
 from voice_mode.config import OPENAI_API_KEY
+from voice_mode.egress import RemoteSpeechBlocked, guard_speech_destination
 from .types import TranscriptionResult
 
 
@@ -38,8 +39,17 @@ async def transcribe_with_openai(
             error="OpenAI API key not configured. Set OPENAI_API_KEY environment variable."
         )
     
-    # Initialize async client (automatically respects OPENAI_BASE_URL env var)
-    client = AsyncOpenAI(api_key=api_key)
+    # Resolve the destination the SDK would use (OPENAI_BASE_URL, else OpenAI)
+    # and check it before anything is sent.
+    base_url = os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+    try:
+        guard_speech_destination(base_url, "a recording")
+    except RemoteSpeechBlocked as e:
+        return TranscriptionResult(
+            text="", language="", segments=[], backend="openai",
+            success=False, error=str(e),
+        )
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     
     # Prepare timestamp granularities
     timestamp_granularities = ["segment"]

@@ -8,12 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `voicemode adapter install REPO [--path SUBDIR] [--ref REF]` installs a third-party STT/TTS adapter from a git repo into its own venv, pins the commit, and wires it in ahead of the local engine (`adapter list|on|off|setup|status|remove`). It shows the repo, commit, command and, for adapters that send audio off the machine, a red warning, before running anything. Adapters describe themselves in a `voicemode-adapter.json` manifest.
+
+
+### Added
 
 - STT request timeout is configurable: VOICEMODE_STT_TIMEOUT, and
   VOICEMODE_STT_TIMEOUT_LOCAL for local endpoints only (default 60s, unchanged). Thanks
   @rwunsch (#552).
 
 ### Changed
+
+- The `update_config` MCP tool now only changes voice, speed, silence/VAD and
+  output-presentation settings (for example `VOICEMODE_VOICES`, `VOICEMODE_TTS_SPEED`,
+  `VOICEMODE_VAD_AGGRESSIVENESS`). Everything else is refused with the command to run
+  instead, including directories, logging and `VOICEMODE_DEBUG`, endpoints, cloud
+  fallback, `VOICEMODE_TTS_VOICE_SUBSTITUTION` and `VOICEMODE_KOKORO_ALLOW_UNPINNED`, so
+  an agent cannot move your audio or relax a safety setting. Set those yourself with
+  `voicemode config set KEY VALUE`, which is unchanged.
+
+- **Speech recognition stays local unless you opt in.** The default STT list is local
+  whisper only, and OpenAI is dropped from `VOICEMODE_STT_BASE_URLS`, even if listed,
+  unless you set `VOICEMODE_ALLOW_CLOUD_STT=true`. Before, a local failure could send
+  a recording to OpenAI without telling you. **If you rely on OpenAI for STT**, set
+  `VOICEMODE_ALLOW_CLOUD_STT=true`. The installer no longer adds OpenAI to the STT list.
+- `voicemode transcribe audio` defaults to the local `whisper-cpp` backend. Pass
+  `--backend openai` to upload the file to OpenAI.
+- `OPENAI_API_KEY` is only sent to OpenAI hosts. Other endpoints get a placeholder key.
+  If a self-hosted endpoint needs the key, list its hostname in `VOICEMODE_API_KEY_HOSTS`.
+- Kokoro installs are loopback-only by default. The installer writes `start-voicemode.sh`,
+  a copy of the upstream start script bound to 127.0.0.1 (override with
+  `VOICEMODE_KOKORO_HOST`) with CORS limited to the local origin, and refuses to run if a
+  `0.0.0.0` bind survives. It checks the checkout against a pinned commit (set
+  `VOICEMODE_KOKORO_ALLOW_UNPINNED=true` for other versions) and no longer pipes `curl` into
+  `sh` to get uv; it asks you to install uv instead.
 
 - A Kokoro voice is no longer swapped for an OpenAI one when TTS fails over to OpenAI.
   Before, `af_sky` quietly became `nova` (a different voice, and a billed call), and the
@@ -45,6 +73,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A project `.voicemode.env` can no longer redirect your audio, keys or MCP connection.
+  These files come with whatever repository you cloned, so VoiceMode now accepts only
+  `VOICEMODE_*` preferences from them. It ignores endpoint URLs, hosts, API keys, tokens,
+  `VOICEMODE_LOCAL_ONLY`, `VOICEMODE_ALLOW_CLOUD_STT` and `VOICEMODE_MCP_*`, and logs a
+  warning naming each one. Set those in your environment or `~/.voicemode/voicemode.env`.
+- A `VOICEMODE_MCP_TOKEN` saved in `voicemode.env` is only sent to the
+  `VOICEMODE_MCP_URL` saved beside it. To use it with another URL, export both.
+- `VOICEMODE_LOCAL_ONLY` is now checked before every outbound speech request,
+  including clone voices, Cartesia, `voicemode transcribe`, `listen` and clone
+  reference transcription. Before, it only filtered the main TTS/STT lists.
+
 - With the control channel enabled on native Windows (no Unix domain sockets), `converse`
   speaks again instead of failing every call. The server logs once that the control channel
   is not available on this platform and carries on without it; `voicemode control` says the
@@ -63,6 +102,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   be reached; now the error comes only when audio is actually used, and names the cause. On
   a machine with working audio nothing changes. This also turns the GitHub test matrix green
   again (VM-2597).
+- `voicemode clone add` only accepts a single safe name (1-64 of `a-z`, `0-9`, `-`, `_`,
+  starting with a letter or digit). Before, a name like `../../escape`, an absolute path or
+  a symlinked voice directory wrote `default.wav`, `voice.md` and `default.txt` outside
+  `~/.voicemode/voices`. `voicemode clone remove` now deletes audio only inside the voices
+  directory, and looks up relative `ref_audio` paths there rather than in the current
+  directory.
+- The conversation browser (`scripts/conversation_browser.py`) no longer exposes your
+  transcripts and recordings to everyone on your network. It now listens on 127.0.0.1 only.
+  To reach it from another machine, set `VOICEMODE_BROWSER_HOST` and a
+  `VOICEMODE_BROWSER_TOKEN` of 16 or more characters; without the token it refuses to start.
+  Open `/?token=<token>` once in the browser, or send `Authorization: Bearer <token>`.
+- `voicemode serve` no longer exposes its MCP tools (voice capture, service management) to
+  your local network without a credential. Before, `--host 0.0.0.0` admitted every
+  private-network IP while the token was empty. Now any non-loopback `--host` refuses to
+  start unless `--token` (or `VOICEMODE_SERVE_TOKEN`) is at least 32 characters; generate
+  one with `openssl rand -hex 32`. IP allowlists and `--secret` still apply on top, but no
+  longer stand in for the token. Loopback binds (the default) are unchanged.
+- Re-running `voicemode service install kokoro` on an existing install now checks it the way
+  a fresh install is checked: the checkout must sit at the pinned commit with no local edits
+  to tracked files. Before, a moved tag or edited files passed on the version name alone. If
+  the check fails, reinstall with `voicemode service install kokoro --force`.
+- Kokoro only ever starts through the loopback-bound `start-voicemode.sh`. On older installs
+  without it, `voicemode service start` and `enable` used to fall back to the stock upstream
+  script, which listens on every network interface; they now refuse and ask you to re-run
+  `voicemode service install kokoro`, which recreates it.
 
 ### Security
 

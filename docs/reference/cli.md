@@ -28,7 +28,8 @@ Start the MCP server with HTTP transport for remote access
 voicemode serve [OPTIONS]
 
 Options:
-  --host TEXT                  Host to bind to (default: 127.0.0.1)
+  --host TEXT                  Host to bind to (default: 127.0.0.1). Any
+                               non-loopback host requires --token (32+ chars)
   -p, --port INTEGER           Port to bind to (default: 8765)
   --transport, -t [streamable-http|sse]
                                Transport protocol to use (default: streamable-http)
@@ -71,6 +72,9 @@ voicemode serve --secret my-secret-uuid
 
 # Bearer token authentication
 voicemode serve --token my-secret-token
+
+# Reachable from the LAN: a non-loopback bind refuses to start without a 32+ char token
+voicemode serve --host 0.0.0.0 --token "$(openssl rand -hex 32)"
 
 # Defense in depth: combine IP allowlist + token
 voicemode serve --allow-anthropic --token my-secret-token

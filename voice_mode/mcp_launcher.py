@@ -26,6 +26,11 @@ calls ``load_voicemode_env()`` to fold ``~/.voicemode/voicemode.env`` into
 now actually takes effect here (Claude Code's own ``.mcp.json`` never read
 that file).  A real process env var still wins -- ``load_voicemode_env`` only
 sets keys not already set.
+
+Trust: ``VOICEMODE_MCP_URL``/``_TOKEN`` come only from the process env or the
+user's own ``voicemode.env``; a project ``.voicemode.env`` cannot set them. A
+token saved in ``voicemode.env`` is only sent to the URL saved beside it; to
+send a token elsewhere, export it together with that URL.
 """
 from __future__ import annotations
 
@@ -46,6 +51,30 @@ def _selected_url() -> str:
     return os.environ.get("VOICEMODE_MCP_URL", "").strip()
 
 
+def _token_for(url: str):
+    """The bearer token to send to ``url``, or None.
+
+    A token that came from voicemode.env is bound to the URL saved with it:
+    if the URL now comes from somewhere else, the saved token is not sent.
+    """
+    import sys
+    from voice_mode.config import user_config_values
+
+    token = os.environ.get("VOICEMODE_MCP_TOKEN", "").strip() or None
+    saved = user_config_values()
+    saved_token = saved.get("VOICEMODE_MCP_TOKEN", "").strip()
+    saved_url = saved.get("VOICEMODE_MCP_URL", "").strip()
+    if token and token == saved_token and url.rstrip("/") != saved_url.rstrip("/"):
+        print(
+            f"voicemode: not sending the VOICEMODE_MCP_TOKEN saved in voicemode.env to "
+            f"{url} (it is saved for {saved_url or 'no URL'}). Export the token "
+            f"with this URL to use it here.",
+            file=sys.stderr,
+        )
+        return None
+    return token
+
+
 def main() -> None:
     url = _selected_url()
 
@@ -58,7 +87,7 @@ def main() -> None:
         return
 
     # REMOTE: native stdio<->Streamable-HTTP bridge (no npx/node).
-    token = os.environ.get("VOICEMODE_MCP_TOKEN", "").strip() or None
+    token = _token_for(url)
     from voice_mode.mcp_bridge import run_bridge
 
     run_bridge(url, token)

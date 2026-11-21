@@ -127,8 +127,18 @@ VOICEMODE_TTS_VOICE_SUBSTITUTION=false
 #### Speech-to-Text (STT)
 
 ```bash
-# STT Service URLs
-VOICEMODE_STT_BASE_URLS=http://127.0.0.1:2022/v1,https://api.openai.com/v1
+# STT Service URLs (default: local whisper only)
+VOICEMODE_STT_BASE_URLS=http://127.0.0.1:2022/v1
+
+# Let recordings go to OpenAI when local STT fails (default: false).
+# Without it, OpenAI is dropped from the STT list, even if listed above.
+VOICEMODE_ALLOW_CLOUD_STT=false
+
+# Hosts besides OpenAI's that may receive OPENAI_API_KEY (default: none)
+VOICEMODE_API_KEY_HOSTS=
+
+# Never send speech or text off this machine, checked before every request
+VOICEMODE_LOCAL_ONLY=false
 
 # Whisper configuration
 VOICEMODE_WHISPER_MODEL=large-v2    # Model size
@@ -359,7 +369,7 @@ When running VoiceMode as a remote HTTP service:
 
 ```bash
 # Server settings
-VOICEMODE_SERVE_HOST=127.0.0.1      # Bind address (0.0.0.0 for all interfaces)
+VOICEMODE_SERVE_HOST=127.0.0.1      # Bind address (0.0.0.0 for all interfaces; needs SERVE_TOKEN)
 VOICEMODE_SERVE_PORT=8765           # Port number
 VOICEMODE_SERVE_TRANSPORT=streamable-http  # Transport: streamable-http or sse
 
@@ -371,7 +381,7 @@ VOICEMODE_SERVE_ALLOWED_IPS=        # Custom CIDR ranges (comma-separated)
 
 # Security: Authentication
 VOICEMODE_SERVE_SECRET=             # File path containing shared secret
-VOICEMODE_SERVE_TOKEN=              # Bearer token for authentication
+VOICEMODE_SERVE_TOKEN=              # Bearer token; required (32+ chars) for any non-loopback HOST
 
 # Logging
 VOICEMODE_SERVE_LOG_LEVEL=info      # Log level: debug, info, warning, error
@@ -437,11 +447,17 @@ VoiceMode supports project-specific voice preferences. Create a `.voicemode.env`
 
 ```bash
 # Project-specific voices for a game
-export VOICEMODE_VOICES="onyx,fable"
-export VOICEMODE_TTS_SPEED=0.9
+VOICEMODE_VOICES="onyx,fable"
+VOICEMODE_TTS_SPEED=0.9
 ```
 
 This allows different projects to have different voice settings without changing global configuration.
+
+A project file comes with whatever repository you cloned, so VoiceMode treats it as
+untrusted. It may set `VOICEMODE_*` preferences, but endpoint URLs, hosts, API keys,
+tokens, `VOICEMODE_LOCAL_ONLY`, `VOICEMODE_ALLOW_CLOUD_STT`, `VOICEMODE_MCP_*` and any
+non-`VOICEMODE_` variable are ignored with a warning. Set those in your environment or
+`~/.voicemode/voicemode.env`.
 
 ## Service Auto-Discovery
 
@@ -593,12 +609,15 @@ This prevents network access entirely. Use a secure tunnel (Tailscale, Cloudflar
 
 #### 2. Use Network Access Controls
 
-When exposing to a network, restrict access:
+When exposing to a network, restrict access on top of the token (step 3). A non-loopback
+`VOICEMODE_SERVE_HOST` refuses to start without `VOICEMODE_SERVE_TOKEN` of 32+ characters;
+an IP allowlist is not a credential.
 
 ```bash
 # Allow only Tailscale connections (100.64.0.0/10)
 VOICEMODE_SERVE_ALLOW_TAILSCALE=true
 VOICEMODE_SERVE_HOST=0.0.0.0
+VOICEMODE_SERVE_TOKEN=<output of: openssl rand -hex 32>
 
 # Or allow specific IP ranges
 VOICEMODE_SERVE_ALLOWED_IPS=192.168.1.0/24,10.0.0.0/8
@@ -606,7 +625,7 @@ VOICEMODE_SERVE_ALLOWED_IPS=192.168.1.0/24,10.0.0.0/8
 
 #### 3. Enable Authentication for Remote Access
 
-Use bearer token authentication when exposing beyond localhost:
+Bearer token authentication is required when binding beyond localhost:
 
 ```bash
 # Generate a secure token
@@ -643,6 +662,6 @@ log show --predicate 'process == "voicemode"' --last 1h
 | Access Level | Host | Security |
 |--------------|------|----------|
 | Localhost only | `127.0.0.1` | No auth needed |
-| Local network | `0.0.0.0` + ALLOWED_IPS | Token recommended |
-| Tailscale | `0.0.0.0` + ALLOW_TAILSCALE | Token recommended |
+| Local network | `0.0.0.0` + ALLOWED_IPS | Token required |
+| Tailscale | `0.0.0.0` + ALLOW_TAILSCALE | Token required |
 | Internet | Use secure tunnel | Token required |

@@ -272,16 +272,82 @@ def write_env_file(file_path: Path, config: Dict[str, str], preserve_comments: b
     os.chmod(file_path, 0o600)
 
 
+# The only settings an MCP agent may change: how it sounds and how it listens.
+# Everything else is user-controlled, because a prompt-injected agent could use
+# it to move audio, transcripts or logs (base/log dirs, SAVE_*, DEBUG), reach
+# the cloud (endpoints, LOCAL_ONLY, PREFER_LOCAL, voice substitution), widen
+# exposure (hosts, ports, serve/MCP settings, tool lists) or relax an install
+# check (KOKORO_ALLOW_UNPINNED). This is an allowlist on purpose: a new key is
+# refused until someone adds it here. tests/test_configuration_management.py
+# checks every VOICEMODE_* key in config.py against it.
+AGENT_SETTABLE_KEYS = frozenset({
+    # Voice and speech
+    "VOICEMODE_VOICES",
+    "VOICEMODE_KOKORO_DEFAULT_VOICE",
+    "VOICEMODE_TTS_SPEED",
+    "VOICEMODE_WHISPER_LANGUAGE",
+    "VOICEMODE_SKIP_TTS",
+    "VOICEMODE_AUDIO_FEEDBACK",
+    "VOICEMODE_SOUNDFONTS_ENABLED",
+    "VOICEMODE_CHIME_LEADING_SILENCE",
+    "VOICEMODE_CHIME_TRAILING_SILENCE",
+    "VOICEMODE_TTS_TRAILING_SILENCE",
+    # Listening, silence detection and VAD
+    "VOICEMODE_DEFAULT_LISTEN_DURATION",
+    "VOICEMODE_DISABLE_SILENCE_DETECTION",
+    "VOICEMODE_INITIAL_SILENCE_GRACE_PERIOD",
+    "VOICEMODE_MIN_RECORDING_DURATION",
+    "VOICEMODE_SILENCE_THRESHOLD_MS",
+    "VOICEMODE_VAD_AGGRESSIVENESS",
+    "VOICEMODE_WAIT_DURATION",
+    # What the tool reports back, and Think Out Loud presentation
+    "VOICEMODE_METRICS_LEVEL",
+    "VOICEMODE_TIME_IN_RESPONSE",
+    "VOICEMODE_PROGRESS_STYLE",
+    "VOICEMODE_THINK_OUT_LOUD",
+    "VOICEMODE_THINKING_STYLE",
+    "VOICEMODE_THINKING_VOICES",
+    "VOICEMODE_THINKING_ANNOUNCE_VOICE",
+})
+
+
+def check_agent_may_set(key: str) -> Optional[str]:
+    """Return a refusal message if an agent may not set ``key``, else None."""
+    if key in AGENT_SETTABLE_KEYS:
+        return None
+    return (f"❌ Refusing to set {key}: an agent may only change voice, speed and "
+            "listening settings (see list_config_keys). Ask the user to set it "
+            f"themselves with `voicemode config set {key} <value>` or by editing "
+            f"{USER_CONFIG_PATH}.")
+
+
 @mcp.tool()
 async def update_config(key: str, value: str) -> str:
     """Update a configuration value in the voicemode.env file.
-    
+
+    Only voice, speed, silence/VAD and output-presentation settings can be
+    changed here (AGENT_SETTABLE_KEYS). Directories, logging, endpoints, cloud
+    fallback, network binds, credentials and install overrides are refused;
+    the user sets those with `voicemode config set`.
+
     Args:
         key: The configuration key to update (e.g., 'VOICEMODE_VOICES')
         value: The new value for the configuration
-    
+
     Returns:
         Confirmation message with the updated configuration
+    """
+    refusal = check_agent_may_set(key)
+    if refusal:
+        logger.warning(f"update_config refused for {key}")
+        return refusal
+    return await apply_config_update(key, value)
+
+
+async def apply_config_update(key: str, value: str) -> str:
+    """Write ``key=value`` to voicemode.env. No policy check: callers decide.
+
+    Used by the user-driven CLI. The MCP tool goes through update_config.
     """
     # Validate key format (uppercase identifier; digits allowed after the
     # first letter, e.g. VOICEMODE_PRONOUNCE_PERSONAL2).

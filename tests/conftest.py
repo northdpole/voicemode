@@ -112,6 +112,15 @@ def block_dangerous_commands(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolate_egress_policy(monkeypatch):
+    """Drop the developer's own egress settings (loaded from the real
+    ~/.voicemode/voicemode.env at import), so request-time checks behave the
+    same on every machine. Tests that need them set them explicitly."""
+    for key in ("VOICEMODE_LOCAL_ONLY", "VOICEMODE_ALLOW_CLOUD_STT", "VOICEMODE_API_KEY_HOSTS"):
+        monkeypatch.delenv(key, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def isolate_home_directory(tmp_path, monkeypatch):
     """
     Redirect Path.home() and os.path.expanduser() to a temporary directory.
