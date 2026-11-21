@@ -84,6 +84,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `~/.voicemode/voices`. `voicemode clone remove` now deletes audio only inside the voices
   directory, and looks up relative `ref_audio` paths there rather than in the current
   directory.
+- The conversation browser (`scripts/conversation_browser.py`) no longer exposes your
+  transcripts and recordings to everyone on your network. It now listens on 127.0.0.1 only.
+  To reach it from another machine, set `VOICEMODE_BROWSER_HOST` and a
+  `VOICEMODE_BROWSER_TOKEN` of 16 or more characters; without the token it refuses to start.
+  Open `/?token=<token>` once in the browser, or send `Authorization: Bearer <token>`.
 
 ### Security
 
