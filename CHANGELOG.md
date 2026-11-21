@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Kokoro installs are loopback-only by default. The installer writes `start-voicemode.sh`,
+  a copy of the upstream start script bound to 127.0.0.1 (override with
+  `VOICEMODE_KOKORO_HOST`) with CORS limited to the local origin, and refuses to run if a
+  `0.0.0.0` bind survives. It checks the checkout against a pinned commit (set
+  `VOICEMODE_KOKORO_ALLOW_UNPINNED=true` for other versions) and no longer pipes `curl` into
+  `sh` to get uv; it asks you to install uv instead.
+
 - A Kokoro voice is no longer swapped for an OpenAI one when TTS fails over to OpenAI.
   Before, `af_sky` quietly became `nova` (a different voice, and a billed call), and the
   Kokoro outage that caused it went unreported. Now the OpenAI endpoint is skipped with a

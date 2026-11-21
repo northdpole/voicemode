@@ -19,6 +19,7 @@ from voice_mode.utils.services.common import find_process_by_port, check_service
 VOICEMODE_SERVE_PORT = 8765
 from voice_mode.utils.services.whisper_helpers import find_whisper_server, find_whisper_model
 from voice_mode.utils.services.kokoro_helpers import find_kokoro_fastapi, has_gpu_support, is_kokoro_starting_up
+from voice_mode.utils.services.kokoro_hardening import preferred_start_script
 
 logger = logging.getLogger("voicemode")
 
@@ -66,8 +67,10 @@ def get_service_config_vars(service_name: str) -> Dict[str, Any]:
             kokoro_dir = os.path.join(voicemode_dir, "services", "kokoro")
 
         # Find start script
-        start_script = None
-        if platform.system() == "Darwin":
+        start_script = preferred_start_script(kokoro_dir)
+        if start_script is not None:
+            pass
+        elif platform.system() == "Darwin":
             start_script = Path(kokoro_dir) / "start-gpu_mac.sh"
         else:
             # On Linux, prefer GPU script if GPU is available, otherwise use CPU script
@@ -482,7 +485,10 @@ async def start_service(service_name: str) -> str:
             return "❌ kokoro-fastapi not found. Run `voicemode service install kokoro` first."
         
         # Use appropriate start script
-        if platform.system() == "Darwin":
+        start_script = preferred_start_script(kokoro_dir)
+        if start_script is not None:
+            pass
+        elif platform.system() == "Darwin":
             start_script = Path(kokoro_dir) / "start-gpu_mac.sh"
         else:
             # On Linux, prefer GPU script if GPU is available, otherwise use CPU script

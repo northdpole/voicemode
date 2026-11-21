@@ -17,6 +17,9 @@ from voice_mode.utils.version_helpers import (
     checkout_version, is_version_installed
 )
 from voice_mode.utils.migration_helpers import auto_migrate_if_needed
+from voice_mode.utils.services.kokoro_hardening import (
+    write_hardened_start_script, verify_pinned_commit,
+)
 
 logger = logging.getLogger("voicemode")
 
@@ -238,19 +241,15 @@ async def kokoro_install(
                     
                     start_script_path = os.path.join(install_dir, start_script_name)
                     
-                    # If a custom port is requested, create custom start script
-                    if port != 8880 and os.path.exists(start_script_path):
-                        logger.info(f"Creating custom start script for port {port}")
-                        with open(start_script_path, 'r') as f:
-                            script_content = f.read()
-                        modified_script = script_content.replace("--port 8880", f"--port {port}")
-                        custom_script_name = f"start-custom-{port}.sh"
-                        custom_script_path = os.path.join(install_dir, custom_script_name)
-                        with open(custom_script_path, 'w') as f:
-                            f.write(modified_script)
-                        os.chmod(custom_script_path, 0o755)
-                        start_script_path = custom_script_path
-                    
+                    # Always use a loopback-bound copy of the start script
+                    if os.path.exists(start_script_path):
+                        try:
+                            start_script_path = write_hardened_start_script(
+                                install_dir, start_script_path, port
+                            )
+                        except ValueError as e:
+                            return {"success": False, "error": str(e)}
+
                     # Always update service files even if kokoro is already installed
                     logger.info("Kokoro is already installed, updating service files...")
                     service_update_result = await update_kokoro_service_files(
@@ -296,17 +295,14 @@ async def kokoro_install(
                 "error": "Git is required. Please install git and try again."
             }
         
-        # Install UV if not present
+        # uv is not installed from a piped remote script; ask the user to install it
         if not shutil.which("uv"):
-            logger.info("Installing UV package manager...")
-            subprocess.run(
-                "curl -LsSf https://astral.sh/uv/install.sh | sh",
-                shell=True,
-                check=True
-            )
-            # Add UV to PATH for this session
-            os.environ["PATH"] = f"{os.path.expanduser('~/.cargo/bin')}:{os.environ['PATH']}"
-        
+            return {
+                "success": False,
+                "error": "uv is required. Install it with `brew install uv` "
+                         "(or see https://docs.astral.sh/uv/) and try again."
+            }
+
         # Remove existing installation if force_reinstall
         if force_reinstall and os.path.exists(install_dir):
             logger.info(f"Removing existing installation at {install_dir}")
@@ -335,6 +331,11 @@ async def kokoro_install(
                     "success": False,
                     "error": f"Failed to checkout version {version}"
                 }
+
+        pinned_ok, pinned_msg = verify_pinned_commit(install_dir, version)
+        if not pinned_ok:
+            return {"success": False, "error": pinned_msg}
+        logger.info(pinned_msg)
 
         # Create virtual environment if it doesn't exist (GH-145)
         # The kokoro-fastapi start scripts use `uv pip install` which requires a venv
@@ -366,23 +367,14 @@ async def kokoro_install(
                 "message": "The repository seems incomplete. Try force_reinstall=True"
             }
         
-        # If a custom port is requested, we need to modify the start script
-        if port != 8880:
-            logger.info(f"Creating custom start script for port {port}")
-            with open(start_script_path, 'r') as f:
-                script_content = f.read()
-            
-            # Replace the port in the script
-            modified_script = script_content.replace("--port 8880", f"--port {port}")
-            
-            # Create a custom start script
-            custom_script_name = f"start-custom-{port}.sh"
-            custom_script_path = os.path.join(install_dir, custom_script_name)
-            with open(custom_script_path, 'w') as f:
-                f.write(modified_script)
-            os.chmod(custom_script_path, 0o755)
-            start_script_path = custom_script_path
-            
+        # Derive a loopback-bound start script; refuses if the bind can't be proven safe
+        try:
+            start_script_path = write_hardened_start_script(
+                install_dir, start_script_path, port
+            )
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
+
         current_version = get_current_version(Path(install_dir))
         result = {
             "success": True,
