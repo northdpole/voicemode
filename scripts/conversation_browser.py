@@ -16,16 +16,19 @@ Usage:
     python conversation_browser.py
 """
 
+import hmac
+import ipaddress
 import os
 import re
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
+from urllib.parse import urlencode
 import json
 import time
 from collections import defaultdict
 
-from flask import Flask, render_template_string, jsonify, send_file, request
+from flask import Flask, Response, redirect, render_template_string, jsonify, send_file, request
 
 # Import get_audio_path from voice_mode
 import sys
@@ -39,6 +42,41 @@ BASE_DIR = Path(os.getenv("VOICEMODE_BASE_DIR", str(Path.home() / ".voicemode"))
 TRANSCRIPTIONS_DIR = BASE_DIR / "transcriptions"
 AUDIO_DIR = BASE_DIR / "audio"
 LOGS_DIR = BASE_DIR / "logs"
+
+# Optional shared secret. Required to bind anything but loopback; when set it is
+# enforced on every route, from loopback too.
+app.config["BROWSER_TOKEN"] = os.environ.get("VOICEMODE_BROWSER_TOKEN") or None
+MIN_TOKEN_LENGTH = 16
+TOKEN_COOKIE = "voicemode_browser_token"
+
+
+def _token_matches(supplied: Optional[str], token: str) -> bool:
+    return bool(supplied) and hmac.compare_digest(supplied.encode(), token.encode())
+
+
+@app.before_request
+def require_token():
+    """Enforce BROWSER_TOKEN on the page, the JSON API and /audio/.
+
+    Accepts ``Authorization: Bearer <token>`` or the cookie. ``?token=`` sets
+    the cookie and redirects without it, because ``<audio src>`` cannot send a
+    header.
+    """
+    token = app.config.get("BROWSER_TOKEN")
+    if not token:
+        return None
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer ") and _token_matches(auth[len("Bearer "):], token):
+        return None
+    if _token_matches(request.cookies.get(TOKEN_COOKIE), token):
+        return None
+    if _token_matches(request.args.get("token"), token):
+        args = {k: v for k, v in request.args.items() if k != "token"}
+        resp = redirect(request.path + ("?" + urlencode(args) if args else ""))
+        resp.set_cookie(TOKEN_COOKIE, token, httponly=True, samesite="Strict",
+                        secure=request.is_secure)
+        return resp
+    return Response("Unauthorized", 401, {"WWW-Authenticate": "Bearer"})
 
 # Simple cache
 CACHE = {
@@ -1092,14 +1130,39 @@ def api_conversations():
     conversations = get_all_conversations()
     return jsonify(conversations)
 
+def is_loopback(host: str) -> bool:
+    """True if binding ``host`` keeps the server on this machine."""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 if __name__ == '__main__':
+    # Transcripts and recordings are private: loopback only unless a token is
+    # set, and the Werkzeug debugger (arbitrary code execution) never off-host.
+    host = os.environ.get("VOICEMODE_BROWSER_HOST", "127.0.0.1")
+    token = app.config["BROWSER_TOKEN"]
+    # The Werkzeug debugger executes arbitrary code for anyone who can reach
+    # it, so it is off unless asked for (VM-2484, CodeQL py/flask-debug).
+    debug = os.environ.get("VOICEMODE_BROWSER_DEBUG", "").lower() in ("1", "true", "yes")
+    if not is_loopback(host):
+        if len(token or "") < MIN_TOKEN_LENGTH:
+            sys.exit(
+                f"Refusing to serve conversations on {host}: set VOICEMODE_BROWSER_TOKEN "
+                f"(at least {MIN_TOKEN_LENGTH} characters, e.g. `openssl rand -hex 32`) "
+                "or use the default 127.0.0.1."
+            )
+        if debug:
+            sys.exit(f"Refusing VOICEMODE_BROWSER_DEBUG on non-loopback host {host}.")
+
     print(f"Starting Voice Mode Conversation Browser...")
     print(f"Base directory: {BASE_DIR}")
     print(f"Transcriptions: {TRANSCRIPTIONS_DIR}")
     print(f"Audio files: {AUDIO_DIR}")
-    print(f"\nOpen http://localhost:5000 in your browser\n")
-    
-    # The Werkzeug debugger executes arbitrary code for anyone who can reach
-    # it, so it is off unless asked for (VM-2484, CodeQL py/flask-debug).
-    debug = os.environ.get("VOICEMODE_BROWSER_DEBUG", "").lower() in ("1", "true", "yes")
-    app.run(debug=debug, host='0.0.0.0', port=5000)
+    url = f"http://{'localhost' if is_loopback(host) else host}:5000"
+    print(f"\nOpen {url}{'/?token=<VOICEMODE_BROWSER_TOKEN>' if token else ''} in your browser\n")
+
+    app.run(debug=debug, host=host, port=5000)
