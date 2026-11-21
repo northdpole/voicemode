@@ -1567,6 +1567,10 @@ voice_mode_main_cli.add_command(status_cmd.status)
 # Add Claude Code integration commands
 voice_mode_main_cli.add_command(claude_cmd.claude)
 
+# Add adapter install/manage commands
+from voice_mode.cli_commands import adapter as adapter_cmd
+voice_mode_main_cli.add_command(adapter_cmd.adapter)
+
 # Add soundfonts toggle commands
 voice_mode_main_cli.add_command(soundfonts_cmd.soundfonts)
 
