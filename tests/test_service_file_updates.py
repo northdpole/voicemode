@@ -33,39 +33,25 @@ def test_get_service_config_vars():
 
 
 def test_get_service_config_vars_handles_missing_start_script():
-    """Test that get_service_config_vars handles missing start scripts gracefully."""
-    import platform
+    """Only the hardened start-voicemode.sh is used; stock upstream scripts never are."""
     import tempfile
     from pathlib import Path
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Mock find_kokoro_fastapi to return our temp directory
         with patch('voice_mode.tools.service.find_kokoro_fastapi') as mock_find:
             mock_find.return_value = tmpdir
-            
-            # On Linux, create only start-gpu.sh (not start.sh)
-            if platform.system() != "Darwin":
-                start_gpu = Path(tmpdir) / "start-gpu.sh"
-                start_gpu.write_text("#!/bin/bash\necho test")
-                start_gpu.chmod(0o755)
-            else:
-                # On macOS, create start-gpu_mac.sh
-                start_mac = Path(tmpdir) / "start-gpu_mac.sh"
-                start_mac.write_text("#!/bin/bash\necho test")
-                start_mac.chmod(0o755)
-            
-            # Get config vars - should find the correct script
-            config_vars = get_service_config_vars("kokoro")
-            
-            # START_SCRIPT should not be empty
-            assert config_vars["START_SCRIPT"] != ""
-            assert Path(config_vars["START_SCRIPT"]).exists()
-            
-            # Verify it found the right script
-            if platform.system() != "Darwin":
-                assert "start-gpu.sh" in config_vars["START_SCRIPT"]
-            else:
-                assert "start-gpu_mac.sh" in config_vars["START_SCRIPT"]
+
+            # Stock upstream scripts bind 0.0.0.0 and must not be picked up
+            for name in ("start-gpu_mac.sh", "start-gpu.sh", "start-cpu.sh"):
+                script = Path(tmpdir) / name
+                script.write_text("#!/bin/bash\necho test")
+                script.chmod(0o755)
+            assert get_service_config_vars("kokoro")["START_SCRIPT"] == ""
+
+            hardened = Path(tmpdir) / "start-voicemode.sh"
+            hardened.write_text("#!/bin/bash\necho test")
+            hardened.chmod(0o755)
+            assert get_service_config_vars("kokoro")["START_SCRIPT"] == str(hardened)
 
 
 def test_get_service_config_vars_returns_empty_when_no_script_found():
@@ -148,67 +134,3 @@ def test_kokoro_systemd_template_keeps_restart_prevent_exit_status_guard():
         "voicemode-kokoro.service must keep RestartPreventExitStatus=127 to "
         "prevent Restart=always fight-looping on missing executable (VM-1398)."
     )
-
-
-def test_get_service_config_vars_selects_gpu_script_when_gpu_available():
-    """Test that get_service_config_vars prefers GPU script when GPU is detected."""
-    import platform
-    import tempfile
-    from pathlib import Path
-
-    if platform.system() == "Darwin":
-        pytest.skip("macOS always uses start-gpu_mac.sh")
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Mock find_kokoro_fastapi to return our temp directory
-        with patch('voice_mode.tools.service.find_kokoro_fastapi') as mock_find:
-            with patch('voice_mode.tools.service.has_gpu_support') as mock_gpu:
-                mock_find.return_value = tmpdir
-                mock_gpu.return_value = True  # GPU is available
-                
-                # Create both GPU and CPU scripts
-                gpu_script = Path(tmpdir) / "start-gpu.sh"
-                cpu_script = Path(tmpdir) / "start-cpu.sh"
-                gpu_script.write_text("#!/bin/bash\necho gpu")
-                cpu_script.write_text("#!/bin/bash\necho cpu")
-                gpu_script.chmod(0o755)
-                cpu_script.chmod(0o755)
-                
-                # Get config vars - should prefer GPU script
-                config_vars = get_service_config_vars("kokoro")
-                
-                # Should select GPU script
-                assert "start-gpu.sh" in config_vars["START_SCRIPT"]
-                assert Path(config_vars["START_SCRIPT"]).exists()
-
-
-def test_get_service_config_vars_selects_cpu_script_when_no_gpu():
-    """Test that get_service_config_vars prefers CPU script when no GPU is detected."""
-    import platform
-    import tempfile
-    from pathlib import Path
-    
-    if platform.system() == "Darwin":
-        pytest.skip("macOS always uses start-gpu_mac.sh")
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Mock find_kokoro_fastapi to return our temp directory
-        with patch('voice_mode.tools.service.find_kokoro_fastapi') as mock_find:
-            with patch('voice_mode.tools.service.has_gpu_support') as mock_gpu:
-                mock_find.return_value = tmpdir
-                mock_gpu.return_value = False  # No GPU available
-                
-                # Create both GPU and CPU scripts
-                gpu_script = Path(tmpdir) / "start-gpu.sh"
-                cpu_script = Path(tmpdir) / "start-cpu.sh"
-                gpu_script.write_text("#!/bin/bash\necho gpu")
-                cpu_script.write_text("#!/bin/bash\necho cpu")
-                gpu_script.chmod(0o755)
-                cpu_script.chmod(0o755)
-                
-                # Get config vars - should prefer CPU script
-                config_vars = get_service_config_vars("kokoro")
-                
-                # Should select CPU script
-                assert "start-cpu.sh" in config_vars["START_SCRIPT"]
-                assert Path(config_vars["START_SCRIPT"]).exists()
