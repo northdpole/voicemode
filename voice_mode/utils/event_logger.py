@@ -16,6 +16,8 @@ from dataclasses import dataclass, asdict, field
 import logging
 import atexit
 
+from ..private_fs import ensure_private_dir, open_private_append
+
 logger = logging.getLogger("voicemode.event-logger")
 
 
@@ -92,7 +94,7 @@ class EventLogger:
             return
             
         self.log_dir = log_dir or Path.home() / "voicemode_logs"
-        self.log_dir.mkdir(exist_ok=True)
+        ensure_private_dir(self.log_dir, parents=False)
         
         # Current log file (rotated daily)
         self.log_file: Optional[Path] = None
@@ -257,7 +259,7 @@ class EventLogger:
         
         # Append event
         try:
-            with open(self.log_file, 'a') as f:
+            with open_private_append(self.log_file) as f:
                 f.write(json.dumps(event.to_dict()) + '\n')
         except Exception as e:
             logger.error(f"Failed to write event to log: {e}")

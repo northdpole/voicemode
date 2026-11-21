@@ -468,7 +468,8 @@ async def start_service(service_name: str) -> str:
             cmd = [str(start_script)]
         else:
             # Fallback to direct binary execution
-            cmd = [str(whisper_bin), "--host", "0.0.0.0", "--port", str(port),
+            from voice_mode.config import WHISPER_HOST
+            cmd = [str(whisper_bin), "--host", WHISPER_HOST, "--port", str(port),
                 "--model", str(model_file),
                 "--inference-path", "/v1/audio/transcriptions",
                 "--convert",

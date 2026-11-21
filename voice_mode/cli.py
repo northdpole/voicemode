@@ -1217,8 +1217,8 @@ def config_get(key):
 @click.argument('value')
 def config_set(key, value):
     """Set a configuration value."""
-    from voice_mode.tools.configuration_management import update_config
-    result = asyncio.run(getattr(update_config, 'fn', update_config)(key, value))
+    from voice_mode.tools.configuration_management import apply_config_update
+    result = asyncio.run(apply_config_update(key, value))
     click.echo(result)
 
 

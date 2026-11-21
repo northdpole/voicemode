@@ -38,6 +38,7 @@ from typing import Iterable, Optional
 
 import numpy as np
 
+from ..private_fs import ensure_private_dir
 from .paths import mouth_dir
 
 DAYS = 7
@@ -80,7 +81,7 @@ def pcm16(blocks: Iterable[np.ndarray]) -> bytes:
 def write_wav(path: Path, data: bytes, sample_rate: int) -> Path:
     """16-bit mono PCM to PATH, whole: written beside it, then renamed."""
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(path.parent)
     tmp = path.parent / f".{path.name}.tmp"
     with wave.open(str(tmp), "wb") as w:
         w.setnchannels(1)
@@ -130,7 +131,7 @@ def encode(out: Path, data: bytes, sample_rate: int) -> Path:
     import subprocess
 
     out = Path(out)
-    out.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(out.parent)
     tmp = out.parent / f".{out.stem}.tmp{out.suffix}"
     cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
            "-f", "s16le", "-ar", str(int(sample_rate)), "-ac", "1", "-i", "pipe:0"]
@@ -162,7 +163,7 @@ def keep(item: dict, blocks: Iterable[np.ndarray], sample_rate: int, backend_nam
         now = time.time() if now is None else now
         root = audio_dir() if root is None else root
         day = root / _dt.date.fromtimestamp(now).isoformat()
-        day.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(day)
         utt = str(item["utt"])
         wav, note = day / f"{utt}.wav", day / f"{utt}.json"
         write_wav(wav, data, sample_rate)

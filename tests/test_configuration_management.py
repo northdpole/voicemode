@@ -55,7 +55,7 @@ class TestConfigurationManagement:
             
             # Patch the config path
             with patch("voice_mode.tools.configuration_management.USER_CONFIG_PATH", Path(temp_path)):
-                result = await getattr(update_config, 'fn', update_config)("TEST_KEY", "test_value")
+                result = await getattr(update_config, 'fn', update_config)("VOICEMODE_TEST_KEY", "test_value")
                 
                 # Should return a message (success or error)
                 assert isinstance(result, str)
@@ -63,7 +63,7 @@ class TestConfigurationManagement:
                 
                 # If successful, should mention the key and value
                 if "success" in result.lower() or "updated" in result.lower():
-                    assert "TEST_KEY" in result
+                    assert "VOICEMODE_TEST_KEY" in result
         finally:
             os.unlink(temp_path)
 
@@ -79,19 +79,19 @@ class TestConfigurationManagement:
         try:
             with os.fdopen(fd, 'w') as f:
                 f.write("# Test config\n")
-                f.write("KEEP_KEY=keep_me\n")
+                f.write("VOICEMODE_KEEP_KEY=keep_me\n")
 
             with patch("voice_mode.tools.configuration_management.USER_CONFIG_PATH", Path(temp_path)):
                 # Same value -> no-op: the file write must be skipped.
                 with patch("voice_mode.tools.configuration_management.write_env_file") as mock_write:
-                    result = await getattr(update_config, 'fn', update_config)("KEEP_KEY", "keep_me")
+                    result = await getattr(update_config, 'fn', update_config)("VOICEMODE_KEEP_KEY", "keep_me")
                     mock_write.assert_not_called()
 
                 assert "no change" in result.lower()
                 assert "updated successfully" not in result.lower()
 
                 # A genuine change still updates exactly as before.
-                result2 = await getattr(update_config, 'fn', update_config)("KEEP_KEY", "new_value")
+                result2 = await getattr(update_config, 'fn', update_config)("VOICEMODE_KEEP_KEY", "new_value")
                 assert "updated successfully" in result2.lower()
                 assert "new_value" in result2
         finally:
@@ -108,7 +108,7 @@ class TestConfigurationManagement:
         with patch("voice_mode.tools.configuration_management.USER_CONFIG_PATH", Path("/nonexistent/test.env")):
             with patch("pathlib.Path.mkdir"), patch("pathlib.Path.exists", return_value=False):
                 with patch("builtins.open", mock_open()) as mock_file:
-                    result = await getattr(update_config, 'fn', update_config)("TEST_KEY", "test_value")
+                    result = await getattr(update_config, 'fn', update_config)("VOICEMODE_TEST_KEY", "test_value")
                     # Should return a string result
                     assert isinstance(result, str)
 
@@ -135,7 +135,7 @@ class TestConfigurationManagement:
         with patch("voice_mode.tools.configuration_management.USER_CONFIG_PATH", Path("/tmp/test_config.env")):
             with patch("pathlib.Path.mkdir"):
                 try:
-                    update_result = await getattr(update_config, 'fn', update_config)("TEST_INTEGRATION", "test")
+                    update_result = await getattr(update_config, 'fn', update_config)("VOICEMODE_TEST_INTEGRATION", "test")
                     assert isinstance(update_result, str)
                     assert len(update_result) > 0
                 except Exception:

@@ -272,16 +272,53 @@ def write_env_file(file_path: Path, config: Dict[str, str], preserve_comments: b
     os.chmod(file_path, 0o600)
 
 
+# Settings an agent must not change on its own. They decide where speech and
+# transcripts go, what listens on the network, or what gets executed, so a
+# prompt-injected agent could use them to exfiltrate audio or widen exposure.
+# The user can still set them with `voicemode config set` or by editing the file.
+_PROTECTED_KEY_PATTERN = re.compile(
+    r"(BASE_URLS?|_URLS?$|_HOST$|_TOKEN$|_SECRET$|_API_KEY$|_PASSWORD$|LOCAL_ONLY|^VOICEMODE_SERVE_|^VOICEMODE_MCP_|_COMMAND$|_CMD$)"
+)
+
+
+def check_agent_may_set(key: str) -> Optional[str]:
+    """Return a refusal message if an agent may not set ``key``, else None."""
+    if not key.startswith("VOICEMODE_"):
+        return (f"❌ Refusing to set {key}: only VOICEMODE_* settings can be changed here. "
+                "Other environment variables (PATH, LD_PRELOAD, API keys) are exported to "
+                "voicemode's services and must be edited by hand.")
+    if _PROTECTED_KEY_PATTERN.search(key):
+        return (f"❌ Refusing to set {key}: it controls where audio goes or what listens on "
+                "the network. Ask the user to run `voicemode config set` or edit "
+                "voicemode.env themselves.")
+    return None
+
+
 @mcp.tool()
 async def update_config(key: str, value: str) -> str:
     """Update a configuration value in the voicemode.env file.
-    
+
+    Only VOICEMODE_* keys are accepted, and settings that control endpoints,
+    network binds, tokens or commands are refused; the user sets those directly.
+
     Args:
         key: The configuration key to update (e.g., 'VOICEMODE_VOICES')
         value: The new value for the configuration
-    
+
     Returns:
         Confirmation message with the updated configuration
+    """
+    refusal = check_agent_may_set(key)
+    if refusal:
+        logger.warning(f"update_config refused for {key}")
+        return refusal
+    return await apply_config_update(key, value)
+
+
+async def apply_config_update(key: str, value: str) -> str:
+    """Write ``key=value`` to voicemode.env. No policy check: callers decide.
+
+    Used by the user-driven CLI. The MCP tool goes through update_config.
     """
     # Validate key format (uppercase identifier; digits allowed after the
     # first letter, e.g. VOICEMODE_PRONOUNCE_PERSONAL2).

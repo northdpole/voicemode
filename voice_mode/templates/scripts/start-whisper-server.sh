@@ -94,6 +94,11 @@ fi
 # Port configuration (with environment variable support)
 WHISPER_PORT="${VOICEMODE_WHISPER_PORT:-2022}"
 
+# Bind address. Loopback by default: whisper-server has no authentication, so
+# 0.0.0.0 would expose speech-to-text to everyone on the network. Set
+# VOICEMODE_WHISPER_HOST=0.0.0.0 in voicemode.env to opt in to LAN access.
+WHISPER_HOST="${VOICEMODE_WHISPER_HOST:-127.0.0.1}"
+
 # Thread configuration - auto-detect CPU cores if not specified
 # Works on macOS, Linux, and WSL
 if [ -n "${VOICEMODE_WHISPER_THREADS:-}" ]; then
@@ -146,7 +151,7 @@ HEALTH_URL="http://127.0.0.1:${WHISPER_PORT}/health"
 # Start whisper-server in background to monitor startup
 cd "$WHISPER_DIR"
 "$SERVER_BIN" \
-    --host 0.0.0.0 \
+    --host "$WHISPER_HOST" \
     --port "$WHISPER_PORT" \
     --model "$MODEL_PATH" \
     --inference-path /v1/audio/transcriptions \
@@ -204,7 +209,7 @@ fi
 
 # Restart whisper-server (exec replaces this script process)
 exec "$SERVER_BIN" \
-    --host 0.0.0.0 \
+    --host "$WHISPER_HOST" \
     --port "$WHISPER_PORT" \
     --model "$MODEL_PATH" \
     --inference-path /v1/audio/transcriptions \

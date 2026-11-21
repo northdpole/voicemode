@@ -783,9 +783,38 @@ def parse_provider_models(prefix: str) -> dict:
             result[provider_type] = models
     return result
 
+
+def _is_loopback_url(url: str) -> bool:
+    """True when ``url`` points at this machine (localhost, 127.0.0.0/8, ::1)."""
+    from urllib.parse import urlparse
+    import ipaddress
+    host = (urlparse(url).hostname or "").lower()
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def apply_local_only(urls: list) -> list:
+    """Drop non-loopback endpoints when VOICEMODE_LOCAL_ONLY is on.
+
+    Guarantees microphone audio and spoken text never leave the machine via a
+    configured provider endpoint, whatever else is in the URL lists.
+    """
+    if not env_bool("VOICEMODE_LOCAL_ONLY", False):
+        return urls
+    kept = [u for u in urls if _is_loopback_url(u)]
+    dropped = [u for u in urls if u not in kept]
+    if dropped:
+        logging.getLogger("voicemode").info(
+            "VOICEMODE_LOCAL_ONLY: ignoring non-local endpoints: %s", ", ".join(dropped))
+    return kept
+
 # New provider endpoint lists configuration
-TTS_BASE_URLS = parse_comma_list("VOICEMODE_TTS_BASE_URLS", "http://127.0.0.1:8880/v1,https://api.openai.com/v1")
-STT_BASE_URLS = parse_comma_list("VOICEMODE_STT_BASE_URLS", "http://127.0.0.1:2022/v1,https://api.openai.com/v1")
+TTS_BASE_URLS = apply_local_only(parse_comma_list("VOICEMODE_TTS_BASE_URLS", "http://127.0.0.1:8880/v1,https://api.openai.com/v1"))
+STT_BASE_URLS = apply_local_only(parse_comma_list("VOICEMODE_STT_BASE_URLS", "http://127.0.0.1:2022/v1,https://api.openai.com/v1"))
 TTS_VOICES = parse_comma_list("VOICEMODE_VOICES", "af_sky,alloy")
 
 # Silently remap a local voice to an OpenAI voice when TTS falls back to OpenAI
@@ -900,8 +929,8 @@ def reload_configuration():
     global TTS_MODELS_BY_PROVIDER
     global STT_RETRY_ATTEMPTS, STT_RETRY_BACKOFF, STT_RETRY_BACKOFF_MAX
     global STT_TIMEOUT, STT_TIMEOUT_LOCAL
-    TTS_BASE_URLS = parse_comma_list("VOICEMODE_TTS_BASE_URLS", "http://127.0.0.1:8880/v1,https://api.openai.com/v1")
-    STT_BASE_URLS = parse_comma_list("VOICEMODE_STT_BASE_URLS", "http://127.0.0.1:2022/v1,https://api.openai.com/v1")
+    TTS_BASE_URLS = apply_local_only(parse_comma_list("VOICEMODE_TTS_BASE_URLS", "http://127.0.0.1:8880/v1,https://api.openai.com/v1"))
+    STT_BASE_URLS = apply_local_only(parse_comma_list("VOICEMODE_STT_BASE_URLS", "http://127.0.0.1:2022/v1,https://api.openai.com/v1"))
     TTS_VOICES = parse_comma_list("VOICEMODE_VOICES", "af_sky,alloy")
     TTS_MODELS = parse_comma_list("VOICEMODE_TTS_MODELS", "tts-1,tts-1-hd,gpt-4o-mini-tts")
     TTS_MODELS_BY_PROVIDER = parse_provider_models("VOICEMODE_TTS_MODELS")
@@ -930,6 +959,9 @@ DEFAULT_WHISPER_MODEL = "base"
 # Whisper-specific configuration
 WHISPER_MODEL = os.getenv("VOICEMODE_WHISPER_MODEL", DEFAULT_WHISPER_MODEL)
 WHISPER_PORT = int(os.getenv("VOICEMODE_WHISPER_PORT", "2022"))
+# Interface whisper-server binds to. Loopback by default: whisper.cpp has no
+# authentication, so binding all interfaces exposes speech-to-text to the LAN.
+WHISPER_HOST = os.getenv("VOICEMODE_WHISPER_HOST", "127.0.0.1")
 WHISPER_LANGUAGE = os.getenv("VOICEMODE_WHISPER_LANGUAGE", "auto")
 WHISPER_MODEL_PATH = expand_path(os.getenv("VOICEMODE_WHISPER_MODEL_PATH", str(Path.home() / ".voicemode" / "services" / "whisper" / "models")))
 
@@ -1219,21 +1251,23 @@ def setup_logging() -> logging.Logger:
 def initialize_directories():
     """Create necessary directories for voicemode data storage."""
     # Create base directory
-    BASE_DIR.mkdir(exist_ok=True)
-    
+    # Owner-only (0700): these hold recordings, transcripts and logs.
+    from .private_fs import ensure_private_dir
+    ensure_private_dir(BASE_DIR, parents=False)
+
     # Create all subdirectories
-    AUDIO_DIR.mkdir(exist_ok=True)
-    TRANSCRIPTIONS_DIR.mkdir(exist_ok=True)
-    LOGS_DIR.mkdir(exist_ok=True)
+    ensure_private_dir(AUDIO_DIR, parents=False)
+    ensure_private_dir(TRANSCRIPTIONS_DIR, parents=False)
+    ensure_private_dir(LOGS_DIR, parents=False)
     # CONFIG_DIR.mkdir(exist_ok=True)  # Removed - config stored in .voicemode.env file instead
     
     # Create subdirectories for logs
     if DEBUG:
-        DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-    
+        ensure_private_dir(DEBUG_DIR)
+
     # Create events log directory
     if EVENT_LOG_ENABLED:
-        Path(EVENT_LOG_DIR).mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(EVENT_LOG_DIR)
     
     # Initialize sound fonts if not present
     initialize_soundfonts()

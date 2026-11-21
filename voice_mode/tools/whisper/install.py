@@ -143,7 +143,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Port: $WHISPER_PORT" >> "$STARTUP_LOG"
 # Using exec to replace this script process with whisper-server
 cd "$WHISPER_DIR"
 exec "$SERVER_BIN" \\
-    --host 0.0.0.0 \\
+    --host "${{VOICEMODE_WHISPER_HOST:-127.0.0.1}}" \\
     --port "$WHISPER_PORT" \\
     --model "$MODEL_PATH" \\
     --inference-path /v1/audio/transcriptions \\
