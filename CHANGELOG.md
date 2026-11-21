@@ -70,6 +70,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   be reached; now the error comes only when audio is actually used, and names the cause. On
   a machine with working audio nothing changes. This also turns the GitHub test matrix green
   again (VM-2597).
+- `voicemode clone add` only accepts a single safe name (1-64 of `a-z`, `0-9`, `-`, `_`,
+  starting with a letter or digit). Before, a name like `../../escape`, an absolute path or
+  a symlinked voice directory wrote `default.wav`, `voice.md` and `default.txt` outside
+  `~/.voicemode/voices`. `voicemode clone remove` now deletes audio only inside the voices
+  directory, and looks up relative `ref_audio` paths there rather than in the current
+  directory.
 
 ### Security
 
