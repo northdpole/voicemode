@@ -69,7 +69,7 @@ def test_agent_guard_refuses(key):
     assert check_agent_may_set(key)
 
 
-@pytest.mark.parametrize("key", ["VOICEMODE_VOICES", "VOICEMODE_DEBUG", "VOICEMODE_TTS_SPEED"])
+@pytest.mark.parametrize("key", ["VOICEMODE_VOICES", "VOICEMODE_VAD_AGGRESSIVENESS", "VOICEMODE_TTS_SPEED"])
 def test_agent_guard_allows(key):
     from voice_mode.tools.configuration_management import check_agent_may_set
     assert check_agent_may_set(key) is None
