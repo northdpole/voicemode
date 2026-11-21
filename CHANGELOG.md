@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The `update_config` MCP tool now only changes voice, speed, silence/VAD and
+  output-presentation settings (for example `VOICEMODE_VOICES`, `VOICEMODE_TTS_SPEED`,
+  `VOICEMODE_VAD_AGGRESSIVENESS`). Everything else is refused with the command to run
+  instead, including directories, logging and `VOICEMODE_DEBUG`, endpoints, cloud
+  fallback, `VOICEMODE_TTS_VOICE_SUBSTITUTION` and `VOICEMODE_KOKORO_ALLOW_UNPINNED`, so
+  an agent cannot move your audio or relax a safety setting. Set those yourself with
+  `voicemode config set KEY VALUE`, which is unchanged.
+
 - Kokoro installs are loopback-only by default. The installer writes `start-voicemode.sh`,
   a copy of the upstream start script bound to 127.0.0.1 (override with
   `VOICEMODE_KOKORO_HOST`) with CORS limited to the local origin, and refuses to run if a
