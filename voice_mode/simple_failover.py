@@ -11,6 +11,7 @@ from typing import Optional, Tuple, Dict, Any
 from openai import AsyncOpenAI, APIConnectionError, APIStatusError
 from .openai_error_parser import OpenAIErrorParser
 from .provider_discovery import is_local_provider
+from .egress import guard_speech_destination, scoped_api_key
 
 from .config import (
     TTS_BASE_URLS, STT_BASE_URLS, OPENAI_API_KEY, STT_PROMPT, WHISPER_LANGUAGE,
@@ -129,8 +130,10 @@ def _prepare_tts_endpoint(base_url, voice, model, clone_profile):
         population that made this hook meaningless is now structurally
         impossible, so ``is_fallback`` finally means one thing.
     """
+    # Final destination check (clone profiles route here too, not via TTS_BASE_URLS).
+    guard_speech_destination(base_url, "text for speech synthesis")
     provider_type = detect_provider_type(base_url)
-    api_key = OPENAI_API_KEY if provider_type == "openai" else (OPENAI_API_KEY or "dummy-key-for-local")
+    api_key = scoped_api_key(base_url, OPENAI_API_KEY)
     is_fallback = False
     fallback_reason = None
 
@@ -650,7 +653,8 @@ async def simple_stt_failover(
                 logger.warning(f"STT: Primary failed, attempting fallback #{i}: {base_url} ({provider_type})")
 
             # Create client for this endpoint
-            api_key = OPENAI_API_KEY if provider_type == "openai" else (OPENAI_API_KEY or "dummy-key-for-local")
+            guard_speech_destination(base_url, "a recording")
+            api_key = scoped_api_key(base_url, OPENAI_API_KEY)
 
             # Local endpoints keep the SDK client's own retries at 0; transient
             # retries for local STT are handled by the explicit backoff loop

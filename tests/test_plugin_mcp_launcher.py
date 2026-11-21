@@ -107,7 +107,10 @@ class TestVoicemodeEnvPlacementFixed:
     because the launcher (a voicemode process) loads that file."""
 
     def _write_env(self, home: Path, body: str):
-        d = home / ".voicemode"
+        # Path.home() (patched by conftest), not $HOME: only the user's own
+        # voicemode.env may set VOICEMODE_MCP_URL; a cwd-ancestor file is a
+        # project config and is ignored for transport settings.
+        d = Path.home() / ".voicemode"
         d.mkdir(parents=True, exist_ok=True)
         (d / "voicemode.env").write_text(body)
 

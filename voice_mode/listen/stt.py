@@ -82,6 +82,12 @@ class WhisperSTT:
         self._client = httpx.Client(timeout=httpx.Timeout(timeout, connect=5.0))
 
     def transcribe(self, audio: np.ndarray) -> str:
+        from ..egress import RemoteSpeechBlocked, guard_speech_destination
+
+        try:
+            guard_speech_destination(self.base_url, "a recording")
+        except RemoteSpeechBlocked as exc:
+            raise STTError(str(exc)) from exc
         data = {"model": self.model, "response_format": "json"}
         if self.language:
             data["language"] = self.language

@@ -687,20 +687,21 @@ is_mlx_audio_installed() {
 # Point VoiceMode at the chosen STT + TTS backends by writing the two
 # preference-ordered base-URL lists separately. STT always goes to
 # whisper.cpp (VM-1421); only the TTS URL varies between mlx-audio (8890)
-# and Kokoro (8880). OpenAI stays as the trailing cloud fallback on both
-# so a cold local server still degrades gracefully. Uses the existing
+# and Kokoro (8880). OpenAI stays as the trailing cloud fallback for TTS
+# only: recordings never go to OpenAI unless the user sets
+# VOICEMODE_ALLOW_CLOUD_STT=true. Uses the existing
 # `voicemode config set` primitive (writes ~/.voicemode/voicemode.env) --
 # no fragile shell-side env munging.
 configure_voice_urls() {
     local stt_url="$1"
     local tts_url="$2"
-    local stt_urls="${stt_url},https://api.openai.com/v1"
+    local stt_urls="${stt_url}"
     local tts_urls="${tts_url},https://api.openai.com/v1"
 
     info "Pointing VoiceMode at STT ${stt_url} and TTS ${tts_url}..."
     if voicemode config set VOICEMODE_STT_BASE_URLS "$stt_urls" \
         && voicemode config set VOICEMODE_TTS_BASE_URLS "$tts_urls"; then
-        ok "VoiceMode configured (OpenAI cloud fallback kept)"
+        ok "VoiceMode configured (speech recognition stays local)"
     else
         warn "Could not write voice base-URL config"
         warn "Set it later with:"

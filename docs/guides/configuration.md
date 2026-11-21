@@ -127,8 +127,18 @@ VOICEMODE_TTS_VOICE_SUBSTITUTION=false
 #### Speech-to-Text (STT)
 
 ```bash
-# STT Service URLs
-VOICEMODE_STT_BASE_URLS=http://127.0.0.1:2022/v1,https://api.openai.com/v1
+# STT Service URLs (default: local whisper only)
+VOICEMODE_STT_BASE_URLS=http://127.0.0.1:2022/v1
+
+# Let recordings go to OpenAI when local STT fails (default: false).
+# Without it, OpenAI is dropped from the STT list, even if listed above.
+VOICEMODE_ALLOW_CLOUD_STT=false
+
+# Hosts besides OpenAI's that may receive OPENAI_API_KEY (default: none)
+VOICEMODE_API_KEY_HOSTS=
+
+# Never send speech or text off this machine, checked before every request
+VOICEMODE_LOCAL_ONLY=false
 
 # Whisper configuration
 VOICEMODE_WHISPER_MODEL=large-v2    # Model size
@@ -437,11 +447,17 @@ VoiceMode supports project-specific voice preferences. Create a `.voicemode.env`
 
 ```bash
 # Project-specific voices for a game
-export VOICEMODE_VOICES="onyx,fable"
-export VOICEMODE_TTS_SPEED=0.9
+VOICEMODE_VOICES="onyx,fable"
+VOICEMODE_TTS_SPEED=0.9
 ```
 
 This allows different projects to have different voice settings without changing global configuration.
+
+A project file comes with whatever repository you cloned, so VoiceMode treats it as
+untrusted. It may set `VOICEMODE_*` preferences, but endpoint URLs, hosts, API keys,
+tokens, `VOICEMODE_LOCAL_ONLY`, `VOICEMODE_ALLOW_CLOUD_STT`, `VOICEMODE_MCP_*` and any
+non-`VOICEMODE_` variable are ignored with a warning. Set those in your environment or
+`~/.voicemode/voicemode.env`.
 
 ## Service Auto-Discovery
 

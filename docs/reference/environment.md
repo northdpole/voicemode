@@ -12,6 +12,10 @@ Environment variables are processed in this order (highest to lowest priority):
 5. User `~/.voicemode/voicemode.env` file
 6. Built-in defaults
 
+A project `.voicemode.env` is untrusted: it can only set `VOICEMODE_*` preferences.
+Endpoint URLs, hosts, API keys, tokens, `VOICEMODE_LOCAL_ONLY`,
+`VOICEMODE_ALLOW_CLOUD_STT` and `VOICEMODE_MCP_*` in it are ignored with a warning.
+
 ## Core Configuration
 
 ### API Keys
@@ -71,7 +75,10 @@ are unaffected — they always use their profile's pinned model.
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `VOICEMODE_STT_BASE_URLS` | Comma-separated STT service URLs | `https://api.openai.com/v1` | `http://localhost:2022/v1` |
+| `VOICEMODE_STT_BASE_URLS` | Comma-separated STT service URLs. OpenAI entries are dropped unless `VOICEMODE_ALLOW_CLOUD_STT=true` | `http://127.0.0.1:2022/v1` | `http://localhost:2022/v1` |
+| `VOICEMODE_ALLOW_CLOUD_STT` | Allow recordings to go to OpenAI; with the default list, adds OpenAI as the STT fallback | `false` | `true` |
+| `VOICEMODE_API_KEY_HOSTS` | Hostnames besides OpenAI's that may receive `OPENAI_API_KEY`; others get a placeholder key | None | `litellm.internal` |
+| `VOICEMODE_LOCAL_ONLY` | Refuse any TTS/STT request to a non-local address, checked before every request (clone voices, Cartesia, `voicemode transcribe`) | `false` | `true` |
 | `VOICEMODE_STT_MODEL` | STT model sent to every non-OpenAI endpoint. When unset, a per-provider default applies (see below) | `whisper-1` (mlx-audio: `mlx-community/whisper-large-v3-turbo-asr-4bit`) | `whisper-1` |
 | `VOICEMODE_STT_MODELS` | Comma-separated STT models, one per `VOICEMODE_STT_BASE_URLS` entry (positional) | None | `whisper-1,mlx-community/whisper-large-v3-turbo-asr-4bit` |
 | `VOICEMODE_STT_PROMPT` | Vocabulary biasing for Whisper (names, terms) | None | `tmux, Tali, kubectl` |
